@@ -21,10 +21,13 @@
 <canvas id="c"></canvas>
 <script>
   const SPEED = 170;
-  const RESPONSE = 0.25;   // 0.4 = snappy/direct · 0.15 = weighty/carving
+  const RESPONSE_TURN = 0.22;   // gentle turns: weight and carve
+  const RESPONSE_SNAP = 0.65;   // hard turns / reversals: near-instant
+  const SNAP_ANGLE = 1.4;       // radians (~80deg). At/above this, use full SNAP.
   const DEADZONE = 2;
   const TURN_RATE = 0.15;
   const PULSE_DURATION = 180;
+  const MARGIN = 24;
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -147,8 +150,18 @@
       targetY = key.y * SPEED;
     }
 
-    player.vx += (targetX - player.vx) * RESPONSE;
-    player.vy += (targetY - player.vy) * RESPONSE;
+    const curLen = Math.hypot(player.vx, player.vy);
+    const targetLen = Math.hypot(targetX, targetY);
+    let angleBetween = 0;
+    if (curLen > 0.001 && targetLen > 0.001) {
+      const dot = (player.vx * targetX + player.vy * targetY) / (curLen * targetLen);
+      angleBetween = Math.acos(Math.max(-1, Math.min(1, dot)));
+    }
+    const t = Math.min(Math.max(angleBetween / SNAP_ANGLE, 0), 1);
+    const response = RESPONSE_TURN + (RESPONSE_SNAP - RESPONSE_TURN) * t;
+
+    player.vx += (targetX - player.vx) * response;
+    player.vy += (targetY - player.vy) * response;
 
     const speed = Math.hypot(player.vx, player.vy);
     if (speed > SPEED) {
@@ -158,6 +171,16 @@
 
     player.x += player.vx * dt;
     player.y += player.vy * dt;
+
+    if (player.x <= MARGIN || player.x >= window.innerWidth - MARGIN) {
+      player.vx = 0;
+    }
+    player.x = Math.max(MARGIN, Math.min(window.innerWidth - MARGIN, player.x));
+
+    if (player.y <= MARGIN || player.y >= window.innerHeight - MARGIN) {
+      player.vy = 0;
+    }
+    player.y = Math.max(MARGIN, Math.min(window.innerHeight - MARGIN, player.y));
 
     if (speed > 0.001) {
       const targetAngle = Math.atan2(player.vy, player.vx);
