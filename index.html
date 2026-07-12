@@ -62,21 +62,27 @@
   });
 
   let dragging = false;
-  let dragCurX = 0;
-  let dragCurY = 0;
+  let lastX = 0;
+  let lastY = 0;
+  let pendingDX = 0;
+  let pendingDY = 0;
 
   function pointerDown(x, y) {
     dragging = true;
-    dragCurX = x;
-    dragCurY = y;
+    lastX = x;
+    lastY = y;
   }
   function pointerMove(x, y) {
     if (!dragging) return;
-    dragCurX = x;
-    dragCurY = y;
+    pendingDX += x - lastX;
+    pendingDY += y - lastY;
+    lastX = x;
+    lastY = y;
   }
   function pointerUp() {
     dragging = false;
+    pendingDX = 0;
+    pendingDY = 0;
   }
 
   canvas.addEventListener('touchstart', (e) => {
@@ -120,16 +126,10 @@
     let dy = 0;
 
     if (dragging) {
-      const toX = dragCurX - player.x;
-      const toY = dragCurY - player.y;
-      const dist = Math.hypot(toX, toY);
-      if (dist > SPEED) {
-        dx = (toX / dist) * SPEED;
-        dy = (toY / dist) * SPEED;
-      } else {
-        dx = toX;
-        dy = toY;
-      }
+      dx = pendingDX;
+      dy = pendingDY;
+      pendingDX = 0;
+      pendingDY = 0;
     } else {
       const key = getKeyVector();
       dx = key.x * SPEED;
