@@ -33,6 +33,9 @@
                               // overshoots when the player cuts across it.
   const SPAWN_INTERVAL = 1.2;   // seconds between spawns
   const MAX_ENEMIES = 60;
+  const SEPARATION_RADIUS = 28;   // px — how close before they push apart
+  const CHASE_WEIGHT = 1.0;
+  const SEPARATION_WEIGHT = 1.6;  // higher = they spread more, chase less
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -209,6 +212,56 @@
     if (trail.length > TRAIL_LENGTH) trail.shift();
   }
 
+  function cellKey(cx, cy) {
+    return cx + ',' + cy;
+  }
+
+  function buildGrid() {
+    const grid = new Map();
+    for (const e of enemies) {
+      const key = cellKey(Math.floor(e.x / SEPARATION_RADIUS), Math.floor(e.y / SEPARATION_RADIUS));
+      let bucket = grid.get(key);
+      if (!bucket) {
+        bucket = [];
+        grid.set(key, bucket);
+      }
+      bucket.push(e);
+    }
+    return grid;
+  }
+
+  function separationFor(enemy, grid) {
+    let sepX = 0;
+    let sepY = 0;
+    const cx = Math.floor(enemy.x / SEPARATION_RADIUS);
+    const cy = Math.floor(enemy.y / SEPARATION_RADIUS);
+
+    for (let gx = cx - 1; gx <= cx + 1; gx++) {
+      for (let gy = cy - 1; gy <= cy + 1; gy++) {
+        const bucket = grid.get(cellKey(gx, gy));
+        if (!bucket) continue;
+        for (const other of bucket) {
+          if (other === enemy) continue;
+          const ox = enemy.x - other.x;
+          const oy = enemy.y - other.y;
+          const odist = Math.hypot(ox, oy);
+          if (odist > 0.001 && odist < SEPARATION_RADIUS) {
+            const weight = 1 - odist / SEPARATION_RADIUS;
+            sepX += (ox / odist) * weight;
+            sepY += (oy / odist) * weight;
+          }
+        }
+      }
+    }
+
+    const sepLen = Math.hypot(sepX, sepY);
+    if (sepLen > 0.001) {
+      sepX /= sepLen;
+      sepY /= sepLen;
+    }
+    return { x: sepX, y: sepY };
+  }
+
   function updateEnemies(dt) {
     spawnTimer += dt;
     if (spawnTimer >= SPAWN_INTERVAL && enemies.length < MAX_ENEMIES) {
@@ -216,17 +269,32 @@
       enemies.push(spawnEnemy());
     }
 
+    const grid = buildGrid();
+
     for (const enemy of enemies) {
       const dx = player.x - enemy.x;
       const dy = player.y - enemy.y;
-      const len = Math.hypot(dx, dy);
+      const dlen = Math.hypot(dx, dy);
 
-      let targetX = 0;
-      let targetY = 0;
-      if (len > 0.001) {
-        targetX = (dx / len) * ENEMY_SPEED;
-        targetY = (dy / len) * ENEMY_SPEED;
+      let chaseX = 0;
+      let chaseY = 0;
+      if (dlen > 0.001) {
+        chaseX = dx / dlen;
+        chaseY = dy / dlen;
       }
+
+      const sep = separationFor(enemy, grid);
+
+      let desiredX = chaseX * CHASE_WEIGHT + sep.x * SEPARATION_WEIGHT;
+      let desiredY = chaseY * CHASE_WEIGHT + sep.y * SEPARATION_WEIGHT;
+      const desiredLen = Math.hypot(desiredX, desiredY);
+      if (desiredLen > 0.001) {
+        desiredX /= desiredLen;
+        desiredY /= desiredLen;
+      }
+
+      const targetX = desiredX * ENEMY_SPEED;
+      const targetY = desiredY * ENEMY_SPEED;
 
       enemy.vx += (targetX - enemy.vx) * ENEMY_TURN;
       enemy.vy += (targetY - enemy.vy) * ENEMY_TURN;
