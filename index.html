@@ -29,6 +29,8 @@
   const PULSE_DURATION = 180;
   const MARGIN = 24;
   const ENEMY_SPEED = 110;
+  const ENEMY_TURN = 0.045;   // LOW. The enemy commits to a heading and
+                              // overshoots when the player cuts across it.
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -54,10 +56,10 @@
   function spawnEnemy() {
     const pad = 40;
     const edge = Math.floor(Math.random() * 4);
-    if (edge === 0) return { x: Math.random() * canvas.width, y: -pad, angle: 0 };
-    if (edge === 1) return { x: canvas.width + pad, y: Math.random() * canvas.height, angle: 0 };
-    if (edge === 2) return { x: Math.random() * canvas.width, y: canvas.height + pad, angle: 0 };
-    return { x: -pad, y: Math.random() * canvas.height, angle: 0 };
+    if (edge === 0) return { x: Math.random() * canvas.width, y: -pad, vx: 0, vy: 0, angle: 0 };
+    if (edge === 1) return { x: canvas.width + pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0 };
+    if (edge === 2) return { x: Math.random() * canvas.width, y: canvas.height + pad, vx: 0, vy: 0, angle: 0 };
+    return { x: -pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0 };
   }
 
   const enemy = spawnEnemy();
@@ -208,10 +210,28 @@
     const dx = player.x - enemy.x;
     const dy = player.y - enemy.y;
     const len = Math.hypot(dx, dy);
+
+    let targetX = 0;
+    let targetY = 0;
     if (len > 0.001) {
-      enemy.x += (dx / len) * ENEMY_SPEED * dt;
-      enemy.y += (dy / len) * ENEMY_SPEED * dt;
-      enemy.angle = Math.atan2(dy, dx);
+      targetX = (dx / len) * ENEMY_SPEED;
+      targetY = (dy / len) * ENEMY_SPEED;
+    }
+
+    enemy.vx += (targetX - enemy.vx) * ENEMY_TURN;
+    enemy.vy += (targetY - enemy.vy) * ENEMY_TURN;
+
+    const speed = Math.hypot(enemy.vx, enemy.vy);
+    if (speed > ENEMY_SPEED) {
+      enemy.vx = (enemy.vx / speed) * ENEMY_SPEED;
+      enemy.vy = (enemy.vy / speed) * ENEMY_SPEED;
+    }
+
+    enemy.x += enemy.vx * dt;
+    enemy.y += enemy.vy * dt;
+
+    if (speed > 0.001) {
+      enemy.angle = Math.atan2(enemy.vy, enemy.vx);
     }
   }
 
