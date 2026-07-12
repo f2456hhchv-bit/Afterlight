@@ -20,6 +20,10 @@
 <body>
 <canvas id="c"></canvas>
 <script>
+  const SPEED = 150;
+  const DEADZONE = 6;
+  const TURN_RATE = 0.15;
+
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
 
@@ -38,9 +42,6 @@
   };
   player.x = canvas.width / 2;
   player.y = canvas.height / 2;
-
-  const SPEED = 2.5;
-  const TURN_RATE = 0.15;
 
   const keys = { up: false, down: false, left: false, right: false };
 
@@ -62,27 +63,21 @@
   });
 
   let dragging = false;
-  let lastX = 0;
-  let lastY = 0;
-  let pendingDX = 0;
-  let pendingDY = 0;
+  let fingerX = 0;
+  let fingerY = 0;
 
   function pointerDown(x, y) {
     dragging = true;
-    lastX = x;
-    lastY = y;
+    fingerX = x;
+    fingerY = y;
   }
   function pointerMove(x, y) {
     if (!dragging) return;
-    pendingDX += x - lastX;
-    pendingDY += y - lastY;
-    lastX = x;
-    lastY = y;
+    fingerX = x;
+    fingerY = y;
   }
   function pointerUp() {
     dragging = false;
-    pendingDX = 0;
-    pendingDY = 0;
   }
 
   canvas.addEventListener('touchstart', (e) => {
@@ -121,29 +116,29 @@
     return { x: ix, y: iy };
   }
 
-  function update() {
+  function update(dt) {
     let dx = 0;
     let dy = 0;
 
     if (dragging) {
-      const dragDist = Math.hypot(pendingDX, pendingDY);
-      if (dragDist > 0) {
-        dx = (pendingDX / dragDist) * SPEED;
-        dy = (pendingDY / dragDist) * SPEED;
+      const toX = fingerX - player.x;
+      const toY = fingerY - player.y;
+      const len = Math.hypot(toX, toY);
+      if (len > DEADZONE) {
+        dx = (toX / len) * SPEED * dt;
+        dy = (toY / len) * SPEED * dt;
       }
-      pendingDX = 0;
-      pendingDY = 0;
     } else {
       const key = getKeyVector();
-      dx = key.x * SPEED;
-      dy = key.y * SPEED;
+      dx = key.x * SPEED * dt;
+      dy = key.y * SPEED * dt;
     }
 
     player.x += dx;
     player.y += dy;
 
     const dist = Math.hypot(dx, dy);
-    if (dist > 0.5) {
+    if (dist > 0.001) {
       const targetAngle = Math.atan2(dy, dx);
       let diff = ((targetAngle - player.angle + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
       player.angle += diff * TURN_RATE;
@@ -171,13 +166,19 @@
     ctx.restore();
   }
 
-  function loop() {
-    update();
+  let lastTime = null;
+
+  function loop(timestamp) {
+    if (lastTime === null) lastTime = timestamp;
+    const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+    lastTime = timestamp;
+
+    update(dt);
     draw();
     requestAnimationFrame(loop);
   }
 
-  loop();
+  requestAnimationFrame(loop);
 </script>
 </body>
 </html>
