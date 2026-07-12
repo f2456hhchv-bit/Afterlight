@@ -39,8 +39,7 @@
   player.x = canvas.width / 2;
   player.y = canvas.height / 2;
 
-  const CHASE_RATE = 0.2;
-  const KEY_LOOKAHEAD = 40;
+  const SPEED = 5;
   const TURN_RATE = 0.15;
 
   const keys = { up: false, down: false, left: false, right: false };
@@ -117,23 +116,28 @@
   }
 
   function update() {
-    let targetX = player.x;
-    let targetY = player.y;
+    let dx = 0;
+    let dy = 0;
 
     if (dragging) {
-      targetX = dragCurX;
-      targetY = dragCurY;
+      const toX = dragCurX - player.x;
+      const toY = dragCurY - player.y;
+      const dist = Math.hypot(toX, toY);
+      if (dist > SPEED) {
+        dx = (toX / dist) * SPEED;
+        dy = (toY / dist) * SPEED;
+      } else {
+        dx = toX;
+        dy = toY;
+      }
     } else {
       const key = getKeyVector();
-      targetX = player.x + key.x * KEY_LOOKAHEAD;
-      targetY = player.y + key.y * KEY_LOOKAHEAD;
+      dx = key.x * SPEED;
+      dy = key.y * SPEED;
     }
 
-    const dx = targetX - player.x;
-    const dy = targetY - player.y;
-
-    player.x += dx * CHASE_RATE;
-    player.y += dy * CHASE_RATE;
+    player.x += dx;
+    player.y += dy;
 
     const dist = Math.hypot(dx, dy);
     if (dist > 0.5) {
