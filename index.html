@@ -126,8 +126,11 @@
     let dy = 0;
 
     if (dragging) {
-      dx = pendingDX;
-      dy = pendingDY;
+      const dragDist = Math.hypot(pendingDX, pendingDY);
+      if (dragDist > 0) {
+        dx = (pendingDX / dragDist) * SPEED;
+        dy = (pendingDY / dragDist) * SPEED;
+      }
       pendingDX = 0;
       pendingDY = 0;
     } else {
