@@ -34,16 +34,13 @@
   const player = {
     x: 0,
     y: 0,
-    angle: -Math.PI / 2,
-    vx: 0,
-    vy: 0
+    angle: -Math.PI / 2
   };
   player.x = canvas.width / 2;
   player.y = canvas.height / 2;
 
-  const MAX_SPEED = 6;
-  const ACCEL = 0.18;
-  const FRICTION = 0.95;
+  const CHASE_RATE = 0.2;
+  const KEY_LOOKAHEAD = 40;
   const TURN_RATE = 0.15;
 
   const keys = { up: false, down: false, left: false, right: false };
@@ -66,15 +63,11 @@
   });
 
   let dragging = false;
-  let dragStartX = 0;
-  let dragStartY = 0;
   let dragCurX = 0;
   let dragCurY = 0;
 
   function pointerDown(x, y) {
     dragging = true;
-    dragStartX = x;
-    dragStartY = y;
     dragCurX = x;
     dragCurY = y;
   }
@@ -106,18 +99,8 @@
   });
   window.addEventListener('mouseup', pointerUp);
 
-  function getInputVector() {
+  function getKeyVector() {
     let ix = 0, iy = 0;
-
-    if (dragging) {
-      const dx = dragCurX - dragStartX;
-      const dy = dragCurY - dragStartY;
-      const dist = Math.hypot(dx, dy);
-      if (dist > 4) {
-        ix += dx / dist;
-        iy += dy / dist;
-      }
-    }
 
     if (keys.up) iy -= 1;
     if (keys.down) iy += 1;
@@ -134,25 +117,27 @@
   }
 
   function update() {
-    const input = getInputVector();
+    let targetX = player.x;
+    let targetY = player.y;
 
-    player.vx += input.x * ACCEL;
-    player.vy += input.y * ACCEL;
-
-    player.vx *= FRICTION;
-    player.vy *= FRICTION;
-
-    const speed = Math.hypot(player.vx, player.vy);
-    if (speed > MAX_SPEED) {
-      player.vx = (player.vx / speed) * MAX_SPEED;
-      player.vy = (player.vy / speed) * MAX_SPEED;
+    if (dragging) {
+      targetX = dragCurX;
+      targetY = dragCurY;
+    } else {
+      const key = getKeyVector();
+      targetX = player.x + key.x * KEY_LOOKAHEAD;
+      targetY = player.y + key.y * KEY_LOOKAHEAD;
     }
 
-    player.x += player.vx;
-    player.y += player.vy;
+    const dx = targetX - player.x;
+    const dy = targetY - player.y;
 
-    if (speed > 0.1) {
-      const targetAngle = Math.atan2(player.vy, player.vx);
+    player.x += dx * CHASE_RATE;
+    player.y += dy * CHASE_RATE;
+
+    const dist = Math.hypot(dx, dy);
+    if (dist > 0.5) {
+      const targetAngle = Math.atan2(dy, dx);
       let diff = ((targetAngle - player.angle + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
       player.angle += diff * TURN_RATE;
     }
