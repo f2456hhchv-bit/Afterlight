@@ -31,6 +31,8 @@
   const ENEMY_SPEED = 110;
   const ENEMY_TURN = 0.045;   // LOW. The enemy commits to a heading and
                               // overshoots when the player cuts across it.
+  const SPAWN_INTERVAL = 1.2;   // seconds between spawns
+  const MAX_ENEMIES = 60;
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -62,7 +64,8 @@
     return { x: -pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0 };
   }
 
-  const enemy = spawnEnemy();
+  const enemies = [];
+  let spawnTimer = 0;
 
   const keys = { up: false, down: false, left: false, right: false };
 
@@ -206,32 +209,40 @@
     if (trail.length > TRAIL_LENGTH) trail.shift();
   }
 
-  function updateEnemy(dt) {
-    const dx = player.x - enemy.x;
-    const dy = player.y - enemy.y;
-    const len = Math.hypot(dx, dy);
-
-    let targetX = 0;
-    let targetY = 0;
-    if (len > 0.001) {
-      targetX = (dx / len) * ENEMY_SPEED;
-      targetY = (dy / len) * ENEMY_SPEED;
+  function updateEnemies(dt) {
+    spawnTimer += dt;
+    if (spawnTimer >= SPAWN_INTERVAL && enemies.length < MAX_ENEMIES) {
+      spawnTimer = 0;
+      enemies.push(spawnEnemy());
     }
 
-    enemy.vx += (targetX - enemy.vx) * ENEMY_TURN;
-    enemy.vy += (targetY - enemy.vy) * ENEMY_TURN;
+    for (const enemy of enemies) {
+      const dx = player.x - enemy.x;
+      const dy = player.y - enemy.y;
+      const len = Math.hypot(dx, dy);
 
-    const speed = Math.hypot(enemy.vx, enemy.vy);
-    if (speed > ENEMY_SPEED) {
-      enemy.vx = (enemy.vx / speed) * ENEMY_SPEED;
-      enemy.vy = (enemy.vy / speed) * ENEMY_SPEED;
-    }
+      let targetX = 0;
+      let targetY = 0;
+      if (len > 0.001) {
+        targetX = (dx / len) * ENEMY_SPEED;
+        targetY = (dy / len) * ENEMY_SPEED;
+      }
 
-    enemy.x += enemy.vx * dt;
-    enemy.y += enemy.vy * dt;
+      enemy.vx += (targetX - enemy.vx) * ENEMY_TURN;
+      enemy.vy += (targetY - enemy.vy) * ENEMY_TURN;
 
-    if (speed > 0.001) {
-      enemy.angle = Math.atan2(enemy.vy, enemy.vx);
+      const speed = Math.hypot(enemy.vx, enemy.vy);
+      if (speed > ENEMY_SPEED) {
+        enemy.vx = (enemy.vx / speed) * ENEMY_SPEED;
+        enemy.vy = (enemy.vy / speed) * ENEMY_SPEED;
+      }
+
+      enemy.x += enemy.vx * dt;
+      enemy.y += enemy.vy * dt;
+
+      if (speed > 0.001) {
+        enemy.angle = Math.atan2(enemy.vy, enemy.vx);
+      }
     }
   }
 
@@ -250,19 +261,21 @@
       ctx.fill();
     }
 
-    ctx.save();
-    ctx.translate(enemy.x, enemy.y);
-    ctx.rotate(enemy.angle);
+    for (const enemy of enemies) {
+      ctx.save();
+      ctx.translate(enemy.x, enemy.y);
+      ctx.rotate(enemy.angle);
 
-    ctx.fillStyle = '#f00';
-    ctx.beginPath();
-    ctx.moveTo(13, 0);
-    ctx.lineTo(-10, 8);
-    ctx.lineTo(-10, -8);
-    ctx.closePath();
-    ctx.fill();
+      ctx.fillStyle = '#f00';
+      ctx.beginPath();
+      ctx.moveTo(13, 0);
+      ctx.lineTo(-10, 8);
+      ctx.lineTo(-10, -8);
+      ctx.closePath();
+      ctx.fill();
 
-    ctx.restore();
+      ctx.restore();
+    }
 
     ctx.save();
     ctx.translate(player.x, player.y - THUMB_OFFSET);
@@ -306,7 +319,7 @@
     currentTime = timestamp;
 
     update(dt);
-    updateEnemy(dt);
+    updateEnemies(dt);
     draw();
     requestAnimationFrame(loop);
   }
