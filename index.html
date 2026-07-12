@@ -35,7 +35,7 @@
   const MAX_ENEMIES = 85;
   const SEPARATION_RADIUS = 28;   // px — how close before they push apart
   const CHASE_WEIGHT = 1.0;
-  const SEPARATION_WEIGHT = 1.6;  // higher = they spread more, chase less
+  const SEPARATION_WEIGHT = 1.3;  // higher = they spread more, chase less
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -61,10 +61,12 @@
   function spawnEnemy() {
     const pad = 40;
     const edge = Math.floor(Math.random() * 4);
-    if (edge === 0) return { x: Math.random() * canvas.width, y: -pad, vx: 0, vy: 0, angle: 0 };
-    if (edge === 1) return { x: canvas.width + pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0 };
-    if (edge === 2) return { x: Math.random() * canvas.width, y: canvas.height + pad, vx: 0, vy: 0, angle: 0 };
-    return { x: -pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0 };
+    const speed = ENEMY_SPEED * (0.9 + Math.random() * 0.2);   // +/-10%
+    const turn = ENEMY_TURN * (0.85 + Math.random() * 0.3);
+    if (edge === 0) return { x: Math.random() * canvas.width, y: -pad, vx: 0, vy: 0, angle: 0, speed, turn };
+    if (edge === 1) return { x: canvas.width + pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0, speed, turn };
+    if (edge === 2) return { x: Math.random() * canvas.width, y: canvas.height + pad, vx: 0, vy: 0, angle: 0, speed, turn };
+    return { x: -pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0, speed, turn };
   }
 
   const enemies = [];
@@ -246,7 +248,8 @@
           const oy = enemy.y - other.y;
           const odist = Math.hypot(ox, oy);
           if (odist > 0.001 && odist < SEPARATION_RADIUS) {
-            const weight = 1 - odist / SEPARATION_RADIUS;
+            const strength = 1 - odist / SEPARATION_RADIUS;
+            const weight = strength * strength;   // squared falloff — soft near the edge
             sepX += (ox / odist) * weight;
             sepY += (oy / odist) * weight;
           }
@@ -255,7 +258,7 @@
     }
 
     const sepLen = Math.hypot(sepX, sepY);
-    if (sepLen > 0.001) {
+    if (sepLen > 1) {
       sepX /= sepLen;
       sepY /= sepLen;
     }
@@ -293,16 +296,16 @@
         desiredY /= desiredLen;
       }
 
-      const targetX = desiredX * ENEMY_SPEED;
-      const targetY = desiredY * ENEMY_SPEED;
+      const targetX = desiredX * enemy.speed;
+      const targetY = desiredY * enemy.speed;
 
-      enemy.vx += (targetX - enemy.vx) * ENEMY_TURN;
-      enemy.vy += (targetY - enemy.vy) * ENEMY_TURN;
+      enemy.vx += (targetX - enemy.vx) * enemy.turn;
+      enemy.vy += (targetY - enemy.vy) * enemy.turn;
 
       const speed = Math.hypot(enemy.vx, enemy.vy);
-      if (speed > ENEMY_SPEED) {
-        enemy.vx = (enemy.vx / speed) * ENEMY_SPEED;
-        enemy.vy = (enemy.vy / speed) * ENEMY_SPEED;
+      if (speed > enemy.speed) {
+        enemy.vx = (enemy.vx / speed) * enemy.speed;
+        enemy.vy = (enemy.vy / speed) * enemy.speed;
       }
 
       enemy.x += enemy.vx * dt;
