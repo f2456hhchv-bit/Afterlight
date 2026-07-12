@@ -28,6 +28,7 @@
   const TURN_RATE = 0.15;
   const PULSE_DURATION = 180;
   const MARGIN = 24;
+  const ENEMY_SPEED = 110;
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -49,6 +50,17 @@
   };
   player.x = canvas.width / 2;
   player.y = canvas.height / 2;
+
+  function spawnEnemy() {
+    const pad = 40;
+    const edge = Math.floor(Math.random() * 4);
+    if (edge === 0) return { x: Math.random() * canvas.width, y: -pad, angle: 0 };
+    if (edge === 1) return { x: canvas.width + pad, y: Math.random() * canvas.height, angle: 0 };
+    if (edge === 2) return { x: Math.random() * canvas.width, y: canvas.height + pad, angle: 0 };
+    return { x: -pad, y: Math.random() * canvas.height, angle: 0 };
+  }
+
+  const enemy = spawnEnemy();
 
   const keys = { up: false, down: false, left: false, right: false };
 
@@ -192,6 +204,17 @@
     if (trail.length > TRAIL_LENGTH) trail.shift();
   }
 
+  function updateEnemy(dt) {
+    const dx = player.x - enemy.x;
+    const dy = player.y - enemy.y;
+    const len = Math.hypot(dx, dy);
+    if (len > 0.001) {
+      enemy.x += (dx / len) * ENEMY_SPEED * dt;
+      enemy.y += (dy / len) * ENEMY_SPEED * dt;
+      enemy.angle = Math.atan2(dy, dx);
+    }
+  }
+
   const THUMB_OFFSET = 15;
 
   function draw() {
@@ -206,6 +229,20 @@
       ctx.arc(p.x, p.y - THUMB_OFFSET, 6 * age, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    ctx.save();
+    ctx.translate(enemy.x, enemy.y);
+    ctx.rotate(enemy.angle);
+
+    ctx.fillStyle = '#f00';
+    ctx.beginPath();
+    ctx.moveTo(13, 0);
+    ctx.lineTo(-10, 8);
+    ctx.lineTo(-10, -8);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
 
     ctx.save();
     ctx.translate(player.x, player.y - THUMB_OFFSET);
@@ -249,6 +286,7 @@
     currentTime = timestamp;
 
     update(dt);
+    updateEnemy(dt);
     draw();
     requestAnimationFrame(loop);
   }
