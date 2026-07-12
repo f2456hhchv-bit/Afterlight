@@ -63,11 +63,15 @@
   });
 
   let dragging = false;
+  let originX = 0;
+  let originY = 0;
   let fingerX = 0;
   let fingerY = 0;
 
   function pointerDown(x, y) {
     dragging = true;
+    originX = x;
+    originY = y;
     fingerX = x;
     fingerY = y;
   }
@@ -121,8 +125,8 @@
     let dy = 0;
 
     if (dragging) {
-      const toX = fingerX - player.x;
-      const toY = fingerY - player.y;
+      const toX = fingerX - originX;
+      const toY = fingerY - originY;
       const len = Math.hypot(toX, toY);
       if (len > DEADZONE) {
         dx = (toX / len) * SPEED * dt;
@@ -164,6 +168,19 @@
     ctx.fill();
 
     ctx.restore();
+
+    if (dragging) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(originX, originY, 40, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.beginPath();
+      ctx.arc(fingerX, fingerY, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   let lastTime = null;
