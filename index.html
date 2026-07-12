@@ -21,8 +21,10 @@
 <canvas id="c"></canvas>
 <script>
   const SPEED = 170;
+  const RESPONSE = 0.25;   // 0.4 = snappy/direct · 0.15 = weighty/carving
   const DEADZONE = 2;
   const TURN_RATE = 0.15;
+  const PULSE_DURATION = 180;
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -38,6 +40,8 @@
   const player = {
     x: 0,
     y: 0,
+    vx: 0,
+    vy: 0,
     angle: -Math.PI / 2
   };
   player.x = canvas.width / 2;
@@ -67,6 +71,10 @@
   let originY = 0;
   let fingerX = 0;
   let fingerY = 0;
+  let touchStartTime = 0;
+
+  const TRAIL_LENGTH = 10;
+  const trail = [];
 
   function pointerDown(x, y) {
     dragging = true;
@@ -74,6 +82,7 @@
     originY = y;
     fingerX = x;
     fingerY = y;
+    touchStartTime = currentTime;
   }
   function pointerMove(x, y) {
     if (!dragging) return;
@@ -121,32 +130,43 @@
   }
 
   function update(dt) {
-    let dx = 0;
-    let dy = 0;
+    let targetX = 0;
+    let targetY = 0;
 
     if (dragging) {
       const toX = fingerX - originX;
       const toY = fingerY - originY;
       const len = Math.hypot(toX, toY);
       if (len > DEADZONE) {
-        dx = (toX / len) * SPEED * dt;
-        dy = (toY / len) * SPEED * dt;
+        targetX = (toX / len) * SPEED;
+        targetY = (toY / len) * SPEED;
       }
     } else {
       const key = getKeyVector();
-      dx = key.x * SPEED * dt;
-      dy = key.y * SPEED * dt;
+      targetX = key.x * SPEED;
+      targetY = key.y * SPEED;
     }
 
-    player.x += dx;
-    player.y += dy;
+    player.vx += (targetX - player.vx) * RESPONSE;
+    player.vy += (targetY - player.vy) * RESPONSE;
 
-    const dist = Math.hypot(dx, dy);
-    if (dist > 0.001) {
-      const targetAngle = Math.atan2(dy, dx);
+    const speed = Math.hypot(player.vx, player.vy);
+    if (speed > SPEED) {
+      player.vx = (player.vx / speed) * SPEED;
+      player.vy = (player.vy / speed) * SPEED;
+    }
+
+    player.x += player.vx * dt;
+    player.y += player.vy * dt;
+
+    if (speed > 0.001) {
+      const targetAngle = Math.atan2(player.vy, player.vx);
       let diff = ((targetAngle - player.angle + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
       player.angle += diff * TURN_RATE;
     }
+
+    trail.push({ x: player.x, y: player.y });
+    if (trail.length > TRAIL_LENGTH) trail.shift();
   }
 
   const THUMB_OFFSET = 15;
@@ -154,6 +174,15 @@
   function draw() {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    for (let i = 0; i < trail.length; i++) {
+      const p = trail[i];
+      const age = (i + 1) / trail.length;
+      ctx.fillStyle = `rgba(255, 255, 255, ${age * 0.35})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - THUMB_OFFSET, 6 * age, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     ctx.save();
     ctx.translate(player.x, player.y - THUMB_OFFSET);
@@ -170,10 +199,14 @@
     ctx.restore();
 
     if (dragging) {
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+      const pulseT = Math.min((currentTime - touchStartTime) / PULSE_DURATION, 1);
+      const ringRadius = 40 + (1 - pulseT) * 30;
+      const ringAlpha = 0.25 + (1 - pulseT) * 0.35;
+
+      ctx.strokeStyle = `rgba(255, 255, 255, ${ringAlpha})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(originX, originY, 40, 0, Math.PI * 2);
+      ctx.arc(originX, originY, ringRadius, 0, Math.PI * 2);
       ctx.stroke();
 
       ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
@@ -184,11 +217,13 @@
   }
 
   let lastTime = null;
+  let currentTime = 0;
 
   function loop(timestamp) {
     if (lastTime === null) lastTime = timestamp;
     const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
     lastTime = timestamp;
+    currentTime = timestamp;
 
     update(dt);
     draw();
