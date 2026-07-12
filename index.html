@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Afterlight</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: #000;
+    touch-action: none;
+  }
+  canvas {
+    display: block;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', resize);
+  resize();
+
+  const player = {
+    x: 0,
+    y: 0,
+    angle: -Math.PI / 2,
+    vx: 0,
+    vy: 0
+  };
+  player.x = canvas.width / 2;
+  player.y = canvas.height / 2;
+
+  const MAX_SPEED = 6;
+  const ACCEL = 0.6;
+  const FRICTION = 0.94;
+
+  const keys = { up: false, down: false, left: false, right: false };
+
+  window.addEventListener('keydown', (e) => {
+    switch (e.key) {
+      case 'w': case 'W': case 'ArrowUp': keys.up = true; break;
+      case 's': case 'S': case 'ArrowDown': keys.down = true; break;
+      case 'a': case 'A': case 'ArrowLeft': keys.left = true; break;
+      case 'd': case 'D': case 'ArrowRight': keys.right = true; break;
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    switch (e.key) {
+      case 'w': case 'W': case 'ArrowUp': keys.up = false; break;
+      case 's': case 'S': case 'ArrowDown': keys.down = false; break;
+      case 'a': case 'A': case 'ArrowLeft': keys.left = false; break;
+      case 'd': case 'D': case 'ArrowRight': keys.right = false; break;
+    }
+  });
+
+  let dragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragCurX = 0;
+  let dragCurY = 0;
+
+  function pointerDown(x, y) {
+    dragging = true;
+    dragStartX = x;
+    dragStartY = y;
+    dragCurX = x;
+    dragCurY = y;
+  }
+  function pointerMove(x, y) {
+    if (!dragging) return;
+    dragCurX = x;
+    dragCurY = y;
+  }
+  function pointerUp() {
+    dragging = false;
+  }
+
+  canvas.addEventListener('touchstart', (e) => {
+    const t = e.changedTouches[0];
+    pointerDown(t.clientX, t.clientY);
+  }, { passive: true });
+  canvas.addEventListener('touchmove', (e) => {
+    const t = e.changedTouches[0];
+    pointerMove(t.clientX, t.clientY);
+  }, { passive: true });
+  canvas.addEventListener('touchend', pointerUp);
+  canvas.addEventListener('touchcancel', pointerUp);
+
+  canvas.addEventListener('mousedown', (e) => {
+    pointerDown(e.clientX, e.clientY);
+  });
+  window.addEventListener('mousemove', (e) => {
+    pointerMove(e.clientX, e.clientY);
+  });
+  window.addEventListener('mouseup', pointerUp);
+
+  function getInputVector() {
+    let ix = 0, iy = 0;
+
+    if (dragging) {
+      const dx = dragCurX - dragStartX;
+      const dy = dragCurY - dragStartY;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 4) {
+        ix += dx / dist;
+        iy += dy / dist;
+      }
+    }
+
+    if (keys.up) iy -= 1;
+    if (keys.down) iy += 1;
+    if (keys.left) ix -= 1;
+    if (keys.right) ix += 1;
+
+    const len = Math.hypot(ix, iy);
+    if (len > 1) {
+      ix /= len;
+      iy /= len;
+    }
+
+    return { x: ix, y: iy };
+  }
+
+  function update() {
+    const input = getInputVector();
+
+    player.vx += input.x * ACCEL;
+    player.vy += input.y * ACCEL;
+
+    player.vx *= FRICTION;
+    player.vy *= FRICTION;
+
+    const speed = Math.hypot(player.vx, player.vy);
+    if (speed > MAX_SPEED) {
+      player.vx = (player.vx / speed) * MAX_SPEED;
+      player.vy = (player.vy / speed) * MAX_SPEED;
+    }
+
+    player.x += player.vx;
+    player.y += player.vy;
+
+    if (speed > 0.1) {
+      player.angle = Math.atan2(player.vy, player.vx);
+    }
+  }
+
+  function draw() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(player.angle);
+
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(16, 0);
+    ctx.lineTo(-12, 10);
+    ctx.lineTo(-12, -10);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  loop();
+</script>
+</body>
+</html>
