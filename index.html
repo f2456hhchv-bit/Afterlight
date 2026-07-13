@@ -36,6 +36,9 @@
   const SEPARATION_RADIUS = 28;   // px — how close before they push apart
   const CHASE_WEIGHT = 1.0;
   const SEPARATION_WEIGHT = 1.2;  // higher = they spread more, chase less
+  const PLAYER_RADIUS = 14;
+  const ENEMY_RADIUS = 9;
+  const CHASE_WEIGHT_TOUCHING = 0.6;   // lower pull once already at contact — press, don't grind
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -288,8 +291,11 @@
 
       const sep = separationFor(enemy, grid);
 
-      let desiredX = chaseX * CHASE_WEIGHT + sep.x * SEPARATION_WEIGHT;
-      let desiredY = chaseY * CHASE_WEIGHT + sep.y * SEPARATION_WEIGHT;
+      const touchDist = PLAYER_RADIUS + ENEMY_RADIUS;
+      const chaseWeight = dlen <= touchDist ? CHASE_WEIGHT_TOUCHING : CHASE_WEIGHT;
+
+      let desiredX = chaseX * chaseWeight + sep.x * SEPARATION_WEIGHT;
+      let desiredY = chaseY * chaseWeight + sep.y * SEPARATION_WEIGHT;
       const desiredLen = Math.hypot(desiredX, desiredY);
       if (desiredLen > 0.001) {
         desiredX /= desiredLen;
@@ -310,6 +316,19 @@
 
       enemy.x += enemy.vx * dt;
       enemy.y += enemy.vy * dt;
+
+      const pdx = enemy.x - player.x;
+      const pdy = enemy.y - player.y;
+      const pdist = Math.hypot(pdx, pdy);
+      if (pdist < touchDist) {
+        if (pdist > 0.001) {
+          enemy.x = player.x + (pdx / pdist) * touchDist;
+          enemy.y = player.y + (pdy / pdist) * touchDist;
+        } else {
+          enemy.x = player.x + touchDist;
+          enemy.y = player.y;
+        }
+      }
 
       if (speed > 0.001) {
         enemy.angle = Math.atan2(enemy.vy, enemy.vx);
