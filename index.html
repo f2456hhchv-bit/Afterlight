@@ -706,27 +706,46 @@
     dragging = false;
   }
 
+  // Touch devices fire synthetic mousedown/mousemove/mouseup ~0-300ms after
+  // the real touchstart/touchmove/touchend, for compatibility with sites that
+  // only listen for mouse. Both listener sets are bound below (mouse is kept
+  // for desktop testing), so every physical tap was being handled TWICE: once
+  // by the real touch event, then again by the synthetic mouse event replaying
+  // the same coordinates into pointerDown/pointerUp against whatever state the
+  // first pass had already switched to -- e.g. opening the shop, then the
+  // synthetic mousedown immediately closing it again. lastTouchTime records
+  // the most recent real touch event; mouse handlers ignore anything within
+  // this window of it, so only one input path is ever live at a time.
+  let lastTouchTime = -Infinity;
+  const TOUCH_SUPPRESS_MOUSE_MS = 500;
+
   canvas.addEventListener('touchstart', (e) => {
+    lastTouchTime = currentTime;
     const t = e.changedTouches[0];
     pointerDown(t.clientX, t.clientY);
   }, { passive: true });
   canvas.addEventListener('touchmove', (e) => {
+    lastTouchTime = currentTime;
     const t = e.changedTouches[0];
     pointerMove(t.clientX, t.clientY);
   }, { passive: true });
   canvas.addEventListener('touchend', (e) => {
+    lastTouchTime = currentTime;
     const t = e.changedTouches[0];
     pointerUp(t.clientX, t.clientY);
   }, { passive: true });
   canvas.addEventListener('touchcancel', pointerCancel, { passive: true });
 
   canvas.addEventListener('mousedown', (e) => {
+    if (currentTime - lastTouchTime < TOUCH_SUPPRESS_MOUSE_MS) return;
     pointerDown(e.clientX, e.clientY);
   });
   window.addEventListener('mousemove', (e) => {
+    if (currentTime - lastTouchTime < TOUCH_SUPPRESS_MOUSE_MS) return;
     pointerMove(e.clientX, e.clientY);
   });
   window.addEventListener('mouseup', (e) => {
+    if (currentTime - lastTouchTime < TOUCH_SUPPRESS_MOUSE_MS) return;
     pointerUp(e.clientX, e.clientY);
   });
 
