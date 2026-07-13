@@ -193,8 +193,39 @@
 
   function unlockAudio() {
     ensureAudio();
-    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    if (audioCtx && audioCtx.state === 'suspended' && !document.hidden) audioCtx.resume();
   }
+
+  const MUTE_KEY = 'afterlight.muted.v1';
+  let muted = false;
+  try { muted = localStorage.getItem(MUTE_KEY) === '1'; } catch (e) {}
+
+  function setMuted(v) {
+    muted = v;
+    try { localStorage.setItem(MUTE_KEY, v ? '1' : '0'); } catch (e) {}
+  }
+
+  // Called once a frame from loop() — the single place that decides whether
+  // sound should be audible right now. Ducks to silence on mute or on ANY
+  // pause (the level-up draft freezing the run counts too — "audio must stop
+  // when the game is paused" is unconditional, not just for a manual pause
+  // menu). Backgrounding is handled separately, by fully suspending the
+  // context on visibilitychange, since Web Audio keeps rendering in a hidden
+  // tab even though requestAnimationFrame stops — gain alone wouldn't do it.
+  function syncAudioGain() {
+    if (!masterGain || !audioCtx) return;
+    const target = (muted || paused) ? 0 : TUNE.SFX_MASTER_GAIN;
+    masterGain.gain.setTargetAtTime(target, audioCtx.currentTime, 0.05);
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (!audioCtx) return;
+    if (document.hidden) {
+      audioCtx.suspend();
+    } else if (!muted) {
+      audioCtx.resume();
+    }
+  });
 
   function getNoiseBuffer() {
     if (noiseBuffer) return noiseBuffer;
@@ -765,6 +796,9 @@
   let debugPaused = false;
   let draftOptions = [];
   let cardBounds = [];
+  let pauseButtonBounds = null;
+  let muteButtonBounds = null;
+  let resumeButtonBounds = null;
 
   const keys = { up: false, down: false, left: false, right: false };
 
@@ -903,6 +937,21 @@
     }
   }
 
+  function handlePauseMenuTap(x, y) {
+    if (muteButtonBounds &&
+        x >= muteButtonBounds.x && x <= muteButtonBounds.x + muteButtonBounds.w &&
+        y >= muteButtonBounds.y && y <= muteButtonBounds.y + muteButtonBounds.h) {
+      setMuted(!muted);
+      return;
+    }
+    if (resumeButtonBounds &&
+        x >= resumeButtonBounds.x && x <= resumeButtonBounds.x + resumeButtonBounds.w &&
+        y >= resumeButtonBounds.y && y <= resumeButtonBounds.y + resumeButtonBounds.h) {
+      paused = false;
+      return;
+    }
+  }
+
   function pointerDown(x, y) {
     unlockAudio();
     if (state === STATE.MAP) {
@@ -927,12 +976,22 @@
       return;
     }
     if (paused) {
-      for (const card of cardBounds) {
-        if (x >= card.x && x <= card.x + card.w && y >= card.y && y <= card.y + card.h) {
-          applyUpgrade(card.key);
-          break;
+      if (draftOptions.length > 0) {
+        for (const card of cardBounds) {
+          if (x >= card.x && x <= card.x + card.w && y >= card.y && y <= card.y + card.h) {
+            applyUpgrade(card.key);
+            break;
+          }
         }
+      } else {
+        handlePauseMenuTap(x, y);
       }
+      return;
+    }
+    if (pauseButtonBounds &&
+        x >= pauseButtonBounds.x && x <= pauseButtonBounds.x + pauseButtonBounds.w &&
+        y >= pauseButtonBounds.y && y <= pauseButtonBounds.y + pauseButtonBounds.h) {
+      paused = true;
       return;
     }
     dragging = true;
@@ -1867,7 +1926,62 @@
       ctx.textAlign = 'left';
     }
 
-    if (paused) {
+    if (!paused) {
+      // Bottom-left — the top of the screen is already the health bar, XP
+      // bar, wave/enemy text, and (when DEBUG is on) the boss bar and the
+      // DOM debug toggle at top-right. Bottom-left stays clear of all of it.
+      const pauseBtnW = 56;
+      const pauseBtnH = 26;
+      pauseButtonBounds = { x: 14, y: canvas.height - pauseBtnH - 14, w: pauseBtnW, h: pauseBtnH };
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.fillRect(pauseButtonBounds.x, pauseButtonBounds.y, pauseBtnW, pauseBtnH);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(pauseButtonBounds.x, pauseButtonBounds.y, pauseBtnW, pauseBtnH);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText('PAUSE', pauseButtonBounds.x + pauseBtnW / 2, pauseButtonBounds.y + pauseBtnH / 2 + 4);
+      ctx.textAlign = 'left';
+    } else {
+      pauseButtonBounds = null;
+    }
+
+    if (paused && draftOptions.length === 0) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 26px sans-serif';
+      ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2 - 70);
+
+      const menuBtnW = 160;
+      const menuBtnH = 40;
+      const menuBtnX = canvas.width / 2 - menuBtnW / 2;
+
+      muteButtonBounds = { x: menuBtnX, y: canvas.height / 2 - 20, w: menuBtnW, h: menuBtnH };
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.fillRect(muteButtonBounds.x, muteButtonBounds.y, menuBtnW, menuBtnH);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.strokeRect(muteButtonBounds.x, muteButtonBounds.y, menuBtnW, menuBtnH);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText(muted ? 'UNMUTE' : 'MUTE', canvas.width / 2, muteButtonBounds.y + menuBtnH / 2 + 5);
+
+      resumeButtonBounds = { x: menuBtnX, y: muteButtonBounds.y + menuBtnH + 16, w: menuBtnW, h: menuBtnH };
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.fillRect(resumeButtonBounds.x, resumeButtonBounds.y, menuBtnW, menuBtnH);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.strokeRect(resumeButtonBounds.x, resumeButtonBounds.y, menuBtnW, menuBtnH);
+      ctx.fillStyle = '#fff';
+      ctx.fillText('RESUME', canvas.width / 2, resumeButtonBounds.y + menuBtnH / 2 + 5);
+    } else {
+      muteButtonBounds = null;
+      resumeButtonBounds = null;
+    }
+
+    if (paused && draftOptions.length > 0) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -2245,6 +2359,7 @@
     if (state === STATE.MAP && !debugPaused) {
       updateMapScroll();
     }
+    syncAudioGain();
     draw();
     requestAnimationFrame(loop);
   }
@@ -2321,6 +2436,18 @@
     function updateOverrideBanner() {
       overrideBanner.style.display = anyTuneOverrideActive() ? 'block' : 'none';
     }
+
+    const muteRow = document.createElement('label');
+    muteRow.style.cssText = 'display:flex; align-items:center; gap:6px; margin-bottom:10px; padding:6px; background:rgba(255,255,255,0.08); cursor:pointer;';
+    const muteCheckbox = document.createElement('input');
+    muteCheckbox.type = 'checkbox';
+    muteCheckbox.checked = muted;
+    muteCheckbox.onchange = () => setMuted(muteCheckbox.checked);
+    const muteLabel = document.createElement('span');
+    muteLabel.textContent = 'MUTE (all audio)';
+    muteRow.appendChild(muteCheckbox);
+    muteRow.appendChild(muteLabel);
+    tuneTab.appendChild(muteRow);
 
     const resetBtn = document.createElement('button');
     resetBtn.textContent = 'RESET TO DEFAULTS';
