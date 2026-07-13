@@ -383,7 +383,7 @@
 
   function updateDroneFrequency() {
     if (!droneOsc1 || !audioCtx) return;
-    const freq = TUNE.SFX_DRONE_BASE_FREQ + wave * TUNE.SFX_DRONE_WAVE_RISE;
+    const freq = TUNE.SFX_DRONE_BASE_FREQ + difficultyWave() * TUNE.SFX_DRONE_WAVE_RISE;
     const t = audioCtx.currentTime;
     droneOsc1.frequency.setTargetAtTime(freq, t, 0.8);
     droneOsc2.frequency.setTargetAtTime(freq * 1.5, t, 0.8);
@@ -544,69 +544,86 @@
       const raw = localStorage.getItem(SAVE_KEY);
       if (raw) {
         const obj = JSON.parse(raw);
-        if (obj && obj.v === 6 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+        if (obj && obj.v === 7 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 6,
+            v: 7,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
             deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
             names: readNames(obj.names),
             shop: readShop(obj.shop),
-            kekuSeen: readKekuSeen(obj.kekuSeen)
+            kekuSeen: readKekuSeen(obj.kekuSeen),
+            bestDepth: typeof obj.bestDepth === 'number' ? obj.bestDepth : 0
+          };
+        }
+        if (obj && obj.v === 6 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+          return {
+            v: 7,
+            motes: obj.motes,
+            galaxies: obj.galaxies,
+            lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
+            deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
+            names: readNames(obj.names),
+            shop: readShop(obj.shop),
+            kekuSeen: readKekuSeen(obj.kekuSeen),
+            bestDepth: 0
           };
         }
         if (obj && obj.v === 5 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 6,
+            v: 7,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
             deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
             names: readNames(obj.names),
             shop: readShop(obj.shop),
-            kekuSeen: defaultKekuSeen()
+            kekuSeen: defaultKekuSeen(),
+            bestDepth: 0
           };
         }
         if (obj && obj.v === 4 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 6,
+            v: 7,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
             deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
             names: readNames(obj.names),
             shop: defaultShop(),
-            kekuSeen: defaultKekuSeen()
+            kekuSeen: defaultKekuSeen(),
+            bestDepth: 0
           };
         }
         if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 6,
+            v: 7,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
             deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
             names: defaultNames(),
             shop: defaultShop(),
-            kekuSeen: defaultKekuSeen()
+            kekuSeen: defaultKekuSeen(),
+            bestDepth: 0
           };
         }
         if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
-          return { v: 6, motes: obj.motes, galaxies: obj.galaxies, lastPlayed: Date.now(), deepestHeld: obj.galaxies.filter((g) => g === 1).length, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen() };
+          return { v: 7, motes: obj.motes, galaxies: obj.galaxies, lastPlayed: Date.now(), deepestHeld: obj.galaxies.filter((g) => g === 1).length, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0 };
         }
         if (obj && obj.v === 1 && typeof obj.motes === 'number') {
-          return { v: 6, motes: obj.motes, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen() };
+          return { v: 7, motes: obj.motes, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0 };
         }
       }
     } catch (e) {}
-    return { v: 6, motes: 0, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen() };
+    return { v: 7, motes: 0, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0 };
   }
 
   function saveBank() {
     lastPlayed = Date.now();
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 6, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop, kekuSeen: kekuSeen }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 7, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop, kekuSeen: kekuSeen, bestDepth: bestDepth }));
     } catch (e) {}
   }
 
@@ -688,7 +705,11 @@
     return { type: 'hollow', x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.ENEMY_RADIUS, speed, turn };
   }
 
-  function spawnBoss() {
+  // Story mode's boss never scales (growth is 0 whenever n === WAVES_PER_GALAXY,
+  // its only value in story mode). Endless keeps calling this with an
+  // ever-larger n as depth increases, so growth -- and boss HP/speed with it --
+  // never stops climbing.
+  function spawnBoss(n) {
     const pad = 60;
     const edge = Math.floor(Math.random() * 4);
     let x, y;
@@ -696,7 +717,10 @@
     else if (edge === 1) { x = canvas.width + pad; y = Math.random() * canvas.height; }
     else if (edge === 2) { x = Math.random() * canvas.width; y = canvas.height + pad; }
     else { x = -pad; y = Math.random() * canvas.height; }
-    return { x, y, vx: 0, vy: 0, angle: 0, hp: TUNE.BOSS_HP, maxHp: TUNE.BOSS_HP, flashUntil: 0 };
+    const growth = Math.max(0, n - TUNE.WAVES_PER_GALAXY);
+    const hp = Math.floor(TUNE.BOSS_HP * (1 + growth * TUNE.WAVE_HP_GROWTH_PER_WAVE));
+    const speed = TUNE.BOSS_SPEED + growth * TUNE.WAVE_SPEED_PER_WAVE;
+    return { x, y, vx: 0, vy: 0, angle: 0, hp, maxHp: hp, speed, flashUntil: 0 };
   }
 
   const enemies = [];
@@ -711,6 +735,15 @@
   let inBreather = false;
   let breatherTimer = 0;
 
+  // The wave-within-galaxy number (1-10) used for the spawn/breather cycle
+  // itself, vs. the number fed to difficulty formulas. In story mode they're
+  // the same thing. In endless, wave keeps resetting to 1 each depth (so the
+  // trash/boss cycle repeats), but this keeps climbing forever, since depth
+  // never resets -- this is what makes endless difficulty scale without limit.
+  function difficultyWave() {
+    return endlessMode ? wave + (endlessDepth - 1) * TUNE.WAVES_PER_GALAXY : wave;
+  }
+
   function startWave(n) {
     wave = n;
     inBreather = false;
@@ -720,11 +753,11 @@
       waveBudget = 0;
       waveSpawned = 0;
       waveKilled = 0;
-      boss = spawnBoss();
+      boss = spawnBoss(difficultyWave());
       sfxBossAppears();
     } else {
       boss = null;
-      waveBudget = TUNE.WAVE_COUNT_BASE + n * TUNE.WAVE_COUNT_PER_WAVE;
+      waveBudget = TUNE.WAVE_COUNT_BASE + difficultyWave() * TUNE.WAVE_COUNT_PER_WAVE;
       waveSpawned = 0;
       waveKilled = 0;
       const spawnWindow = TUNE.WAVE_SPAWN_DURATION * TUNE.WAVE_SPAWN_FRACTION;
@@ -747,7 +780,7 @@
     spawnTimer += dt;
     if (spawnTimer >= waveSpawnInterval && waveSpawned < waveBudget && enemies.length < TUNE.MAX_ENEMIES) {
       spawnTimer = 0;
-      enemies.push(spawnEnemy(wave));
+      enemies.push(spawnEnemy(difficultyWave()));
       waveSpawned++;
     }
 
@@ -775,6 +808,7 @@
   let NAMES = initialSave.names;
   let shop = initialSave.shop;
   let kekuSeen = initialSave.kekuSeen;
+  let bestDepth = initialSave.bestDepth;
   let decayedGalaxyIndex = -1;
   let deathCause = null;
   let deathKekuLine = null;
@@ -811,6 +845,9 @@
   let shopButtons = [];
   let shopBackBounds = null;
   let shopCloseBounds = null;
+  let endlessButtonBounds = null;
+  let endlessMode = false;
+  let endlessDepth = 0;
   let saveMessage = '';
   let saveMessageUntil = 0;
 
@@ -910,6 +947,8 @@
     deathKekuLine = null;
     victoryKekuLine = null;
     kekuMessageActive = false;
+    endlessMode = false;
+    endlessDepth = 0;
     for (const k of Object.keys(upgradeLevels)) upgradeLevels[k] = 0;
     startWave(1);
   }
@@ -930,6 +969,23 @@
         x >= shopButtonBounds.x && x <= shopButtonBounds.x + shopButtonBounds.w &&
         y >= shopButtonBounds.y && y <= shopButtonBounds.y + shopButtonBounds.h) {
       state = STATE.SHOP;
+      return;
+    }
+    if (endlessButtonBounds &&
+        x >= endlessButtonBounds.x && x <= endlessButtonBounds.x + endlessButtonBounds.w &&
+        y >= endlessButtonBounds.y && y <= endlessButtonBounds.y + endlessButtonBounds.h) {
+      // No selection screen, no menu -- tap it and you're in, immediately.
+      // World state is already clean from the most recent restart() (same
+      // invariant DESCEND relies on), so this just flips mode/state and goes.
+      // startWave(1) runs again here (restart() already ran it once, before
+      // endlessMode was true) so waveBudget/boss/drone frequency are all
+      // computed with difficultyWave() actually seeing endless mode, rather
+      // than relying on wave===1 happening to zero out the difference.
+      endlessMode = true;
+      endlessDepth = 1;
+      startWave(1);
+      state = STATE.RUN;
+      startDrone();
       return;
     }
     for (const btn of startButtons) {
@@ -1291,7 +1347,11 @@
 
   function killPlayer(cause) {
     player.hp = 0;
-    const lostAHeldGalaxy = galaxies[currentGalaxy] === 1;
+    // Endless never touches the story galaxies[] array -- currentGalaxy is
+    // stale/irrelevant there (left over from whatever was last selected on
+    // the map), so without this guard an endless death could wrongly zero
+    // out a held STORY galaxy and fire Keku's "lost" line for it.
+    const lostAHeldGalaxy = !endlessMode && galaxies[currentGalaxy] === 1;
     if (lostAHeldGalaxy) {
       galaxies[currentGalaxy] = 0;
     }
@@ -1434,8 +1494,8 @@
     const dy = player.y - boss.y;
     const dist = Math.hypot(dx, dy);
     if (dist > 0.001) {
-      boss.vx = (dx / dist) * TUNE.BOSS_SPEED;
-      boss.vy = (dy / dist) * TUNE.BOSS_SPEED;
+      boss.vx = (dx / dist) * boss.speed;
+      boss.vy = (dy / dist) * boss.speed;
       boss.angle = Math.atan2(dy, dx);
     }
 
@@ -1553,7 +1613,7 @@
   }
 
   function exportSave() {
-    const text = JSON.stringify({ v: 6, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop, kekuSeen: kekuSeen });
+    const text = JSON.stringify({ v: 7, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop, kekuSeen: kekuSeen, bestDepth: bestDepth });
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text)
         .then(() => { saveMessage = 'Copied to clipboard'; saveMessageUntil = currentTime + 2000; })
@@ -1566,13 +1626,24 @@
     if (!text) return;
     try {
       const obj = JSON.parse(text);
-      if (obj && obj.v === 6 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+      if (obj && obj.v === 7 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
         bankedMotes = obj.motes;
         galaxies = obj.galaxies.slice();
         deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
         NAMES = readNames(obj.names);
         shop = readShop(obj.shop);
         kekuSeen = readKekuSeen(obj.kekuSeen);
+        bestDepth = typeof obj.bestDepth === 'number' ? obj.bestDepth : 0;
+        saveBank();
+        saveMessage = 'Import successful';
+      } else if (obj && obj.v === 6 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+        bankedMotes = obj.motes;
+        galaxies = obj.galaxies.slice();
+        deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
+        NAMES = readNames(obj.names);
+        shop = readShop(obj.shop);
+        kekuSeen = readKekuSeen(obj.kekuSeen);
+        bestDepth = 0;
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 5 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -1582,6 +1653,7 @@
         NAMES = readNames(obj.names);
         shop = readShop(obj.shop);
         kekuSeen = defaultKekuSeen();
+        bestDepth = 0;
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 4 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -1591,6 +1663,7 @@
         NAMES = readNames(obj.names);
         shop = defaultShop();
         kekuSeen = defaultKekuSeen();
+        bestDepth = 0;
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -1600,6 +1673,7 @@
         NAMES = defaultNames();
         shop = defaultShop();
         kekuSeen = defaultKekuSeen();
+        bestDepth = 0;
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -1609,6 +1683,7 @@
         NAMES = defaultNames();
         shop = defaultShop();
         kekuSeen = defaultKekuSeen();
+        bestDepth = 0;
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 1 && typeof obj.motes === 'number') {
@@ -1618,6 +1693,7 @@
         NAMES = defaultNames();
         shop = defaultShop();
         kekuSeen = defaultKekuSeen();
+        bestDepth = 0;
         saveBank();
         saveMessage = 'Import successful';
       } else {
@@ -1778,24 +1854,35 @@
 
           if (closest === boss) {
             sfxBossDies();
-            sfxGalaxyCleared();
-            stopDrone();
-            galaxies[currentGalaxy] = 1;
-            const heldCount = galaxies.filter((g) => g === 1).length;
-            if (heldCount > deepestHeld) deepestHeld = heldCount;
-            if (kekuLineFirstTime(0)) {
-              victoryKekuLine = { text: KEKU_LINES[0], attributed: false };
-            } else if (heldCount === 10 && kekuLineFirstTime(5)) {
-              victoryKekuLine = { text: KEKU_LINES[5], attributed: true };
+            if (endlessMode) {
+              // No map, no menu, no break -- straight into the next depth.
+              // Nothing is held here, so none of the story-mode galaxy/Keku
+              // bookkeeping below applies; the colour shift IS the transition,
+              // via galaxyPalette() cycling on the incremented depth next frame.
+              endlessDepth++;
+              if (endlessDepth > bestDepth) bestDepth = endlessDepth;
+              saveBank();
+              startWave(1);
             } else {
-              victoryKekuLine = null;
+              sfxGalaxyCleared();
+              stopDrone();
+              galaxies[currentGalaxy] = 1;
+              const heldCount = galaxies.filter((g) => g === 1).length;
+              if (heldCount > deepestHeld) deepestHeld = heldCount;
+              if (kekuLineFirstTime(0)) {
+                victoryKekuLine = { text: KEKU_LINES[0], attributed: false };
+              } else if (heldCount === 10 && kekuLineFirstTime(5)) {
+                victoryKekuLine = { text: KEKU_LINES[5], attributed: true };
+              } else {
+                victoryKekuLine = null;
+              }
+              bankedMotes += Math.round(runMotes);
+              saveBank();
+              leapFrom = currentGalaxy;
+              leapTo = Math.min(currentGalaxy + 1, GALAXY_DATA.length - 1);
+              leapStartTime = currentTime;
+              state = STATE.LEAP;
             }
-            bankedMotes += Math.round(runMotes);
-            saveBank();
-            leapFrom = currentGalaxy;
-            leapTo = Math.min(currentGalaxy + 1, GALAXY_DATA.length - 1);
-            leapStartTime = currentTime;
-            state = STATE.LEAP;
           } else {
             sfxKill();
             motes.push({ x: closest.x, y: closest.y, speed: 0 });
@@ -1858,7 +1945,9 @@
   }
 
   function drawRun() {
-    const pal = galaxyPalette(currentGalaxy);
+    // Endless recombines the ten authored star types rather than ever
+    // introducing new ones -- the palette index just wraps as depth grows.
+    const pal = galaxyPalette(endlessMode ? (endlessDepth - 1) % GALAXY_DATA.length : currentGalaxy);
     ctx.fillStyle = pal.background;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -1981,45 +2070,56 @@
       ctx.fill();
     }
 
-    const barX = 20;
-    const barY = 20;
-    const barWidth = 200;
-    const barHeight = 16;
-
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-    ctx.fillRect(barX, barY, barWidth, barHeight);
-
-    ctx.fillStyle = '#f00';
-    ctx.fillRect(barX, barY, barWidth * (player.hp / player.maxHp), barHeight);
-
-    ctx.fillStyle = '#fff';
-    ctx.textAlign = 'left';
-    ctx.font = '13px sans-serif';
-    ctx.fillText('WAVE ' + wave + ' / ' + TUNE.WAVES_PER_GALAXY, barX, barY + barHeight + 20);
-    if (wave < TUNE.WAVES_PER_GALAXY) {
-      const remaining = Math.max(0, waveBudget - waveKilled);
-      ctx.fillText('ENEMIES: ' + remaining, barX, barY + barHeight + 38);
-    }
-
-    const xpNeed = TUNE.XP_BASE + level * TUNE.XP_GROWTH;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-    ctx.fillRect(0, 0, canvas.width, TUNE.XP_BAR_HEIGHT);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.fillRect(0, 0, canvas.width * Math.min(1, xp / xpNeed), TUNE.XP_BAR_HEIGHT);
-
-    if (boss) {
-      const bossBarY = TUNE.XP_BAR_HEIGHT;
-      const bossBarHeight = 8;
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-      ctx.fillRect(0, bossBarY, canvas.width, bossBarHeight);
-      ctx.fillStyle = pal.bossAccent;
-      ctx.fillRect(0, bossBarY, canvas.width * (boss.hp / boss.maxHp), bossBarHeight);
-
+    if (endlessMode) {
+      // The only UI in endless: a depth counter. No health bar, no XP bar,
+      // no wave/enemy text, no boss name/bar -- deliberately. You are not
+      // meant to manage this the way you manage a story run.
       ctx.fillStyle = '#fff';
       ctx.textAlign = 'center';
-      ctx.font = '12px sans-serif';
-      ctx.fillText(NAMES.boss.toUpperCase(), canvas.width / 2, bossBarY + bossBarHeight + 14);
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText('DEPTH ' + endlessDepth, canvas.width / 2, 30);
       ctx.textAlign = 'left';
+    } else {
+      const barX = 20;
+      const barY = 20;
+      const barWidth = 200;
+      const barHeight = 16;
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.fillRect(barX, barY, barWidth, barHeight);
+
+      ctx.fillStyle = '#f00';
+      ctx.fillRect(barX, barY, barWidth * (player.hp / player.maxHp), barHeight);
+
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'left';
+      ctx.font = '13px sans-serif';
+      ctx.fillText('WAVE ' + wave + ' / ' + TUNE.WAVES_PER_GALAXY, barX, barY + barHeight + 20);
+      if (wave < TUNE.WAVES_PER_GALAXY) {
+        const remaining = Math.max(0, waveBudget - waveKilled);
+        ctx.fillText('ENEMIES: ' + remaining, barX, barY + barHeight + 38);
+      }
+
+      const xpNeed = TUNE.XP_BASE + level * TUNE.XP_GROWTH;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.fillRect(0, 0, canvas.width, TUNE.XP_BAR_HEIGHT);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.fillRect(0, 0, canvas.width * Math.min(1, xp / xpNeed), TUNE.XP_BAR_HEIGHT);
+
+      if (boss) {
+        const bossBarY = TUNE.XP_BAR_HEIGHT;
+        const bossBarHeight = 8;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.fillRect(0, bossBarY, canvas.width, bossBarHeight);
+        ctx.fillStyle = pal.bossAccent;
+        ctx.fillRect(0, bossBarY, canvas.width * (boss.hp / boss.maxHp), bossBarHeight);
+
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.font = '12px sans-serif';
+        ctx.fillText(NAMES.boss.toUpperCase(), canvas.width / 2, bossBarY + bossBarHeight + 14);
+        ctx.textAlign = 'left';
+      }
     }
 
     if (!paused) {
@@ -2183,11 +2283,19 @@
     ctx.font = '16px sans-serif';
     const killer = deathCause === 'boss' ? NAMES.boss : NAMES.enemy;
     ctx.fillText('SLAIN BY ' + killer.toUpperCase(), canvas.width / 2, canvas.height / 2 + 26);
-    ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 + 50);
-    ctx.fillText('Tap to restart', canvas.width / 2, canvas.height / 2 + 74);
 
-    if (deathKekuLine) {
-      drawOverheardLine(deathKekuLine, canvas.height / 2 + 108);
+    if (endlessMode) {
+      ctx.fillText('DEPTH REACHED: ' + endlessDepth, canvas.width / 2, canvas.height / 2 + 50);
+      ctx.fillText('BEST DEPTH: ' + bestDepth, canvas.width / 2, canvas.height / 2 + 74);
+      ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 + 98);
+      ctx.fillText('Tap to return to the map', canvas.width / 2, canvas.height / 2 + 122);
+    } else {
+      ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 + 50);
+      ctx.fillText('Tap to restart', canvas.width / 2, canvas.height / 2 + 74);
+
+      if (deathKekuLine) {
+        drawOverheardLine(deathKekuLine, canvas.height / 2 + 108);
+      }
     }
   }
 
@@ -2338,7 +2446,7 @@
     const heldCount = galaxies.filter((g) => g === 1).length;
     ctx.font = '12px sans-serif';
     ctx.fillText('HELD: ' + heldCount + ' / ' + galaxies.length, canvas.width / 2, 68);
-    ctx.fillText('DEEPEST HELD: ' + deepestHeld, canvas.width / 2, 84);
+    ctx.fillText('DEEPEST HELD: ' + deepestHeld + '    BEST DEPTH: ' + bestDepth, canvas.width / 2, 84);
 
     if (decayedGalaxyIndex !== -1) {
       ctx.fillStyle = 'rgba(255, 140, 140, 0.9)';
@@ -2360,6 +2468,19 @@
     ctx.font = 'bold 12px sans-serif';
     ctx.fillText('SHOP', shopBtnX + shopBtnW / 2, shopBtnY + shopBtnH / 2 + 4);
     shopButtonBounds = { x: shopBtnX, y: shopBtnY, w: shopBtnW, h: shopBtnH };
+
+    const endlessBtnW = 74;
+    const endlessBtnH = 28;
+    const endlessBtnX = shopBtnX + shopBtnW + 8;   // next to SHOP, same row
+    const endlessBtnY = shopBtnY;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fillRect(endlessBtnX, endlessBtnY, endlessBtnW, endlessBtnH);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.strokeRect(endlessBtnX, endlessBtnY, endlessBtnW, endlessBtnH);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('ENDLESS', endlessBtnX + endlessBtnW / 2, endlessBtnY + endlessBtnH / 2 + 4);
+    endlessButtonBounds = { x: endlessBtnX, y: endlessBtnY, w: endlessBtnW, h: endlessBtnH };
 
     startButtons = [];
     const smallBtnW = 70;
