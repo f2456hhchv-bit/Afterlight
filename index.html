@@ -2451,7 +2451,7 @@
   }
 
   function drawMap() {
-    const HEADER_HEIGHT = 142;
+    const HEADER_HEIGHT = 200;
 
     // TEMPORARY diagnostic — logs once so we can see what's actually running in
     // this browser, including any TUNE overrides. Safe to remove once confirmed.
@@ -2470,23 +2470,28 @@
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    // Header text starts below the SHOP/ENDLESS button row (bottom edge 40),
+    // not above/behind it -- AFTERLIGHT is centered and wide enough on a
+    // phone-width canvas to reach into the top-left button zone otherwise
+    // (exactly what ENDLESS's extra width made visible: the title overlapping
+    // the button row).
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
     ctx.font = 'bold 22px sans-serif';
-    ctx.fillText('AFTERLIGHT', canvas.width / 2, 28);
+    ctx.fillText('AFTERLIGHT', canvas.width / 2, 60);
 
     ctx.font = '14px sans-serif';
-    ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, 50);
+    ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, 82);
 
     const heldCount = galaxies.filter((g) => g === 1).length;
     ctx.font = '12px sans-serif';
-    ctx.fillText('HELD: ' + heldCount + ' / ' + galaxies.length, canvas.width / 2, 68);
-    ctx.fillText('DEEPEST HELD: ' + deepestHeld + '    BEST DEPTH: ' + bestDepth, canvas.width / 2, 84);
+    ctx.fillText('HELD: ' + heldCount + ' / ' + galaxies.length, canvas.width / 2, 100);
+    ctx.fillText('DEEPEST HELD: ' + deepestHeld + '    BEST DEPTH: ' + bestDepth, canvas.width / 2, 116);
 
     if (decayedGalaxyIndex !== -1) {
       ctx.fillStyle = 'rgba(255, 140, 140, 0.9)';
       ctx.font = '11px sans-serif';
-      ctx.fillText('THE DARK TOOK ' + NAMES.galaxies[decayedGalaxyIndex].toUpperCase() + ' WHILE YOU WERE AWAY.', canvas.width / 2, 100);
+      ctx.fillText('THE DARK TOOK ' + NAMES.galaxies[decayedGalaxyIndex].toUpperCase() + ' WHILE YOU WERE AWAY.', canvas.width / 2, 132);
       ctx.fillStyle = '#fff';
     }
 
@@ -2521,7 +2526,7 @@
     const smallBtnW = 70;
     const smallBtnH = 24;
     const smallBtnGap = 10;
-    const smallBtnY = 108;
+    const smallBtnY = 148;
     const exportX = canvas.width / 2 - smallBtnW - smallBtnGap / 2;
     const importX = canvas.width / 2 + smallBtnGap / 2;
 
