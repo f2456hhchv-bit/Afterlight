@@ -68,7 +68,8 @@
     REACH_MULT: 1.25,       // +25% pickup radius per Reach level
     HULL_HP_BONUS: 20,
     MULTISHOT_SPREAD: 0.09, // radians between adjacent bullets in a volley
-    XP_BAR_HEIGHT: 5
+    XP_BAR_HEIGHT: 5,
+    GALAXY_RADIUS: 14
   };
 
   const SAVE_KEY = 'afterlight.save.v1';
@@ -78,15 +79,20 @@
       const raw = localStorage.getItem(SAVE_KEY);
       if (raw) {
         const obj = JSON.parse(raw);
-        if (obj && obj.v === 1 && typeof obj.motes === 'number') return obj;
+        if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+          return obj;
+        }
+        if (obj && obj.v === 1 && typeof obj.motes === 'number') {
+          return { v: 2, motes: obj.motes, galaxies: new Array(10).fill(0) };
+        }
       }
     } catch (e) {}
-    return { v: 1, motes: 0 };
+    return { v: 2, motes: 0, galaxies: new Array(10).fill(0) };
   }
 
   function saveBank() {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 1, motes: bankedMotes }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 2, motes: bankedMotes, galaxies: galaxies }));
     } catch (e) {}
   }
 
@@ -138,10 +144,16 @@
   let shakeStrength = 0;
 
   const motes = [];
-  let bankedMotes = loadSave().motes;
+  const initialSave = loadSave();
+  let bankedMotes = initialSave.motes;
+  let galaxies = initialSave.galaxies;
   let runMotes = 0;
-  let onStartScreen = true;
+  let onMapScreen = true;
+  let selectedGalaxy = null;
+  let currentGalaxy = null;
   let startButtons = [];
+  let galaxyBounds = [];
+  let descendBounds = null;
   let saveMessage = '';
   let saveMessageUntil = 0;
 
@@ -213,11 +225,12 @@
     draftOptions = [];
     cardBounds = [];
     for (const k of Object.keys(upgradeLevels)) upgradeLevels[k] = 0;
+    selectedGalaxy = null;
     gameOver = false;
   }
 
   function pointerDown(x, y) {
-    if (onStartScreen) {
+    if (onMapScreen) {
       for (const btn of startButtons) {
         if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
           if (btn.action === 'export') exportSave();
@@ -225,11 +238,24 @@
           return;
         }
       }
-      onStartScreen = false;
+      if (descendBounds && selectedGalaxy !== null &&
+          x >= descendBounds.x && x <= descendBounds.x + descendBounds.w &&
+          y >= descendBounds.y && y <= descendBounds.y + descendBounds.h) {
+        currentGalaxy = selectedGalaxy;
+        onMapScreen = false;
+        return;
+      }
+      for (const gb of galaxyBounds) {
+        if (gb.selectable && Math.hypot(x - gb.x, y - gb.y) <= gb.r) {
+          selectedGalaxy = gb.index;
+          return;
+        }
+      }
       return;
     }
     if (gameOver) {
       restart();
+      onMapScreen = true;
       return;
     }
     if (paused) {
@@ -562,7 +588,7 @@
   }
 
   function exportSave() {
-    const text = JSON.stringify({ v: 1, motes: bankedMotes });
+    const text = JSON.stringify({ v: 2, motes: bankedMotes, galaxies: galaxies });
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text)
         .then(() => { saveMessage = 'Copied to clipboard'; saveMessageUntil = currentTime + 2000; })
@@ -575,8 +601,14 @@
     if (!text) return;
     try {
       const obj = JSON.parse(text);
-      if (obj && obj.v === 1 && typeof obj.motes === 'number') {
+      if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
         bankedMotes = obj.motes;
+        galaxies = obj.galaxies.slice();
+        saveBank();
+        saveMessage = 'Import successful';
+      } else if (obj && obj.v === 1 && typeof obj.motes === 'number') {
+        bankedMotes = obj.motes;
+        galaxies = new Array(10).fill(0);
         saveBank();
         saveMessage = 'Import successful';
       } else {
@@ -897,26 +929,79 @@
       }
     }
 
-    if (onStartScreen) {
+    if (onMapScreen) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       ctx.fillStyle = '#fff';
       ctx.textAlign = 'center';
       ctx.font = 'bold 28px sans-serif';
-      ctx.fillText('AFTERLIGHT', canvas.width / 2, canvas.height / 2 - 80);
+      ctx.fillText('AFTERLIGHT', canvas.width / 2, canvas.height / 2 - 140);
 
       ctx.font = '16px sans-serif';
-      ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 - 44);
+      ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 - 104);
 
-      ctx.font = '14px sans-serif';
-      ctx.fillText('Tap to begin', canvas.width / 2, canvas.height / 2 - 12);
+      const galaxyY = canvas.height / 2 - 40;
+      const galaxyMargin = 40;
+      const galaxySpacing = (canvas.width - galaxyMargin * 2) / (galaxies.length - 1);
+
+      galaxyBounds = [];
+      for (let i = 0; i < galaxies.length; i++) {
+        const gx = galaxyMargin + galaxySpacing * i;
+        const lit = galaxies[i] === 1;
+        const unlocked = i === 0 || galaxies[i - 1] === 1;
+        const selectable = unlocked && !lit;
+
+        if (lit) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+          ctx.beginPath();
+          ctx.arc(gx, galaxyY, TUNE.GALAXY_RADIUS * 1.8, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#fff';
+          ctx.beginPath();
+          ctx.arc(gx, galaxyY, TUNE.GALAXY_RADIUS, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.strokeStyle = unlocked ? 'rgba(255, 255, 255, 0.6)' : 'rgba(255, 255, 255, 0.15)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(gx, galaxyY, TUNE.GALAXY_RADIUS, 0, Math.PI * 2);
+          ctx.stroke();
+
+          if (selectedGalaxy === i) {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.beginPath();
+            ctx.arc(gx, galaxyY, TUNE.GALAXY_RADIUS + 5, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
+
+        galaxyBounds.push({ x: gx, y: galaxyY, r: TUNE.GALAXY_RADIUS + 6, index: i, selectable });
+      }
+
+      const descendActive = selectedGalaxy !== null;
+      const descendW = 160;
+      const descendH = 44;
+      const descendX = canvas.width / 2 - descendW / 2;
+      const descendY = galaxyY + 60;
+
+      ctx.fillStyle = descendActive ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.08)';
+      ctx.fillRect(descendX, descendY, descendW, descendH);
+      ctx.strokeStyle = descendActive ? 'rgba(255, 255, 255, 0.6)' : 'rgba(255, 255, 255, 0.2)';
+      ctx.strokeRect(descendX, descendY, descendW, descendH);
+
+      ctx.fillStyle = descendActive ? '#fff' : 'rgba(255, 255, 255, 0.4)';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText('DESCEND', canvas.width / 2, descendY + descendH / 2 + 5);
+
+      descendBounds = { x: descendX, y: descendY, w: descendW, h: descendH };
 
       startButtons = [];
       const btnW = 120;
       const btnH = 36;
       const btnGap = 16;
-      const btnY = canvas.height / 2 + 20;
+      const btnY = descendY + descendH + 30;
       const exportX = canvas.width / 2 - btnW - btnGap / 2;
       const importX = canvas.width / 2 + btnGap / 2;
 
@@ -955,7 +1040,7 @@
     lastTime = timestamp;
     currentTime = timestamp;
 
-    if (!gameOver && !paused && !onStartScreen) {
+    if (!gameOver && !paused && !onMapScreen) {
       update(dt);
       updateEnemies(dt);
       updateBullets(dt);
