@@ -377,16 +377,37 @@
 
   const THUMB_OFFSET = 15;
 
+  function nearestEnemy() {
+    let nearest = null;
+    let nearestDist = Infinity;
+    for (const enemy of enemies) {
+      const dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = enemy;
+      }
+    }
+    return nearest;
+  }
+
   function updateBullets(dt) {
     fireTimer += dt;
     if (fireTimer >= FIRE_RATE) {
-      fireTimer = 0;
-      bullets.push({
-        x: player.x,
-        y: player.y - THUMB_OFFSET,
-        vx: Math.cos(player.angle) * BULLET_SPEED,
-        vy: Math.sin(player.angle) * BULLET_SPEED
-      });
+      const target = nearestEnemy();
+      if (target) {
+        fireTimer = 0;
+        const dx = target.x - player.x;
+        const dy = target.y - player.y;
+        const dist = Math.hypot(dx, dy);
+        const dirX = dist > 0.001 ? dx / dist : 1;
+        const dirY = dist > 0.001 ? dy / dist : 0;
+        bullets.push({
+          x: player.x,
+          y: player.y - THUMB_OFFSET,
+          vx: dirX * BULLET_SPEED,
+          vy: dirY * BULLET_SPEED
+        });
+      }
     }
 
     for (const bullet of bullets) {
