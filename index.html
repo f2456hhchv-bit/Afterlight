@@ -161,6 +161,33 @@
     };
   }
 
+  const GALAXY_WORLD_SPACING = 130;   // vertical world-space gap between galaxies on the map column
+
+  function galaxyWorldY(index) {
+    return index * GALAXY_WORLD_SPACING;
+  }
+
+  // The background haze while browsing the map: driven purely by scroll position,
+  // not by which galaxy is selected. Blends continuously between neighbouring hues.
+  function mapHazeColor(scroll) {
+    const maxIndex = GALAXY_DATA.length - 1;
+    const raw = scroll / GALAXY_WORLD_SPACING;
+    const clamped = Math.max(0, Math.min(maxIndex, raw));
+    const i0 = Math.floor(clamped);
+    const i1 = Math.min(maxIndex, i0 + 1);
+    const frac = clamped - i0;
+    const hue0 = GALAXY_DATA[i0].hue;
+    const hue1 = GALAXY_DATA[i1].hue;
+    const hue = hue0 + (hue1 - hue0) * frac;
+    const depthFrac = clamped / maxIndex;
+    return {
+      hue,
+      depthFrac,
+      background: `hsl(${hue.toFixed(2)}, 65%, ${(depthFrac * 24).toFixed(2)}%)`,
+      washAlpha: Math.pow(depthFrac, 3) * 0.35   // negligible until deep, overwhelming near the centre
+    };
+  }
+
   const DEFAULT_GALAXY_NAMES = ['Edge', 'Cinder Reach', 'Hollow Drift', 'Ashfall Void', 'Pale March', 'Ember Rift', 'Quiet Expanse', 'Dusk Haven', 'Last Light', 'Centre'];
 
   function defaultNames() {
@@ -373,6 +400,38 @@
   let saveMessage = '';
   let saveMessageUntil = 0;
 
+  const MAP_TAP_THRESHOLD = 10;          // px of movement below which a touch counts as a tap, not a scroll
+  const MAP_SCROLL_DECAY_PER_SEC = 0.05; // momentum velocity multiplier remaining after 1 full second
+  const MAP_SCROLL_MAX_VELOCITY = 4000;  // px/sec, clamps an unrealistically fast flick
+
+  const openGalaxyIndex = Math.max(0, Math.min(GALAXY_DATA.length - 1, deepestHeld - 1));
+  let mapScroll = galaxyWorldY(openGalaxyIndex);
+  let mapScrollVelocity = 0;
+  let mapDragging = false;
+  let mapDragStartX = 0;
+  let mapDragStartY = 0;
+  let mapDragLastY = 0;
+  let mapDragLastTime = 0;
+  let mapDragMoved = 0;
+
+  function clampMapScroll() {
+    const minScroll = galaxyWorldY(0);
+    const maxScroll = galaxyWorldY(GALAXY_DATA.length - 1);
+    if (mapScroll < minScroll) { mapScroll = minScroll; mapScrollVelocity = 0; }
+    if (mapScroll > maxScroll) { mapScroll = maxScroll; mapScrollVelocity = 0; }
+  }
+
+  function updateMapScroll(dt) {
+    if (mapDragging) return;
+    if (Math.abs(mapScrollVelocity) < 2) {
+      mapScrollVelocity = 0;
+      return;
+    }
+    mapScroll += mapScrollVelocity * dt;
+    mapScrollVelocity *= Math.pow(MAP_SCROLL_DECAY_PER_SEC, dt);
+    clampMapScroll();
+  }
+
   const UPGRADE_DEFS = [
     { key: 'fireRate', name: 'RATE OF FIRE', desc: '-12% time between shots' },
     { key: 'damage', name: 'DAMAGE', desc: '+25% bullet damage' },
@@ -445,28 +504,38 @@
     startWave(1);
   }
 
-  function pointerDown(x, y) {
-    if (state === STATE.MAP) {
-      for (const btn of startButtons) {
-        if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
-          if (btn.action === 'export') exportSave();
-          else if (btn.action === 'import') importSave();
-          return;
-        }
-      }
-      if (descendBounds && selectedGalaxy !== null &&
-          x >= descendBounds.x && x <= descendBounds.x + descendBounds.w &&
-          y >= descendBounds.y && y <= descendBounds.y + descendBounds.h) {
-        currentGalaxy = selectedGalaxy;
-        state = STATE.RUN;
+  function handleMapTap(x, y) {
+    for (const btn of startButtons) {
+      if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
+        if (btn.action === 'export') exportSave();
+        else if (btn.action === 'import') importSave();
         return;
       }
-      for (const gb of galaxyBounds) {
-        if (gb.selectable && Math.hypot(x - gb.x, y - gb.y) <= gb.r) {
-          selectedGalaxy = gb.index;
-          return;
-        }
+    }
+    if (descendBounds && selectedGalaxy !== null &&
+        x >= descendBounds.x && x <= descendBounds.x + descendBounds.w &&
+        y >= descendBounds.y && y <= descendBounds.y + descendBounds.h) {
+      currentGalaxy = selectedGalaxy;
+      state = STATE.RUN;
+      return;
+    }
+    for (const gb of galaxyBounds) {
+      if (gb.selectable && Math.hypot(x - gb.x, y - gb.y) <= gb.r) {
+        selectedGalaxy = gb.index;
+        return;
       }
+    }
+  }
+
+  function pointerDown(x, y) {
+    if (state === STATE.MAP) {
+      mapDragging = true;
+      mapDragStartX = x;
+      mapDragStartY = y;
+      mapDragLastY = y;
+      mapDragLastTime = currentTime;
+      mapDragMoved = 0;
+      mapScrollVelocity = 0;
       return;
     }
     if (state === STATE.DEAD || state === STATE.VICTORY) {
@@ -494,11 +563,32 @@
     touchStartTime = currentTime;
   }
   function pointerMove(x, y) {
+    if (state === STATE.MAP) {
+      if (!mapDragging) return;
+      const dy = y - mapDragLastY;
+      const dtMs = Math.max(1, currentTime - mapDragLastTime);
+      const instantVelocity = (dy / dtMs) * 1000;
+      mapScrollVelocity = mapScrollVelocity * 0.7 + instantVelocity * 0.3;
+      mapScrollVelocity = Math.max(-MAP_SCROLL_MAX_VELOCITY, Math.min(MAP_SCROLL_MAX_VELOCITY, mapScrollVelocity));
+      mapScroll += dy;
+      clampMapScroll();
+      mapDragMoved = Math.max(mapDragMoved, Math.hypot(x - mapDragStartX, y - mapDragStartY));
+      mapDragLastY = y;
+      mapDragLastTime = currentTime;
+      return;
+    }
     if (!dragging) return;
     fingerX = x;
     fingerY = y;
   }
   function pointerUp() {
+    if (state === STATE.MAP) {
+      mapDragging = false;
+      if (mapDragMoved < MAP_TAP_THRESHOLD) {
+        handleMapTap(mapDragStartX, mapDragStartY);
+      }
+      return;
+    }
     dragging = false;
   }
 
@@ -1324,33 +1414,50 @@
   }
 
   function drawMap() {
+    const HEADER_HEIGHT = 140;
+    const FOOTER_HEIGHT = 160;
+
+    const haze = mapHazeColor(mapScroll);
+    ctx.fillStyle = haze.background;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (haze.washAlpha > 0.001) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${haze.washAlpha.toFixed(3)})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
     ctx.font = 'bold 28px sans-serif';
-    ctx.fillText('AFTERLIGHT', canvas.width / 2, canvas.height / 2 - 140);
+    ctx.fillText('AFTERLIGHT', canvas.width / 2, 40);
 
     ctx.font = '16px sans-serif';
-    ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 - 104);
+    ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, 66);
 
     const heldCount = galaxies.filter((g) => g === 1).length;
     ctx.font = '14px sans-serif';
-    ctx.fillText('HELD: ' + heldCount + ' / ' + galaxies.length, canvas.width / 2, canvas.height / 2 - 76);
-    ctx.fillText('DEEPEST HELD: ' + deepestHeld, canvas.width / 2, canvas.height / 2 - 58);
+    ctx.fillText('HELD: ' + heldCount + ' / ' + galaxies.length, canvas.width / 2, 88);
+    ctx.fillText('DEEPEST HELD: ' + deepestHeld, canvas.width / 2, 106);
 
     if (decayedGalaxyIndex !== -1) {
       ctx.fillStyle = 'rgba(255, 140, 140, 0.9)';
       ctx.font = '12px sans-serif';
-      ctx.fillText('THE DARK TOOK ' + NAMES.galaxies[decayedGalaxyIndex].toUpperCase() + ' WHILE YOU WERE AWAY.', canvas.width / 2, canvas.height / 2 - 40);
+      ctx.fillText('THE DARK TOOK ' + NAMES.galaxies[decayedGalaxyIndex].toUpperCase() + ' WHILE YOU WERE AWAY.', canvas.width / 2, 124);
       ctx.fillStyle = '#fff';
     }
 
-    const galaxyY = canvas.height / 2 + 40;
-    const galaxyMargin = 40;
-    const galaxySpacing = (canvas.width - galaxyMargin * 2) / (galaxies.length - 1);
+    const scrollTop = HEADER_HEIGHT;
+    const scrollBottom = canvas.height - FOOTER_HEIGHT;
+    const viewCenterY = (scrollTop + scrollBottom) / 2;
+    const gx = canvas.width / 2;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, scrollTop, canvas.width, scrollBottom - scrollTop);
+    ctx.clip();
 
     galaxyBounds = [];
     for (let i = 0; i < galaxies.length; i++) {
-      const gx = galaxyMargin + galaxySpacing * i;
+      const gy = viewCenterY + galaxyWorldY(i) - mapScroll;
       const lit = galaxies[i] === 1;
       const unlocked = i === 0 || galaxies[i - 1] === 1;
       const selectable = unlocked;
@@ -1362,18 +1469,18 @@
         if (mv.bloomAlpha > 0.001) {
           ctx.fillStyle = `hsla(${mv.hue}, 70%, 60%, ${mv.bloomAlpha.toFixed(3)})`;
           ctx.beginPath();
-          ctx.arc(gx, galaxyY, mv.bloomRadius, 0, Math.PI * 2);
+          ctx.arc(gx, gy, mv.bloomRadius, 0, Math.PI * 2);
           ctx.fill();
         }
 
         ctx.fillStyle = `hsla(${mv.hue}, 75%, 60%, ${mv.glowAlpha.toFixed(3)})`;
         ctx.beginPath();
-        ctx.arc(gx, galaxyY, mv.glowRadius, 0, Math.PI * 2);
+        ctx.arc(gx, gy, mv.glowRadius, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = `hsla(${mv.hue}, 80%, ${mv.coreLightness.toFixed(1)}%, ${mv.coreAlpha.toFixed(3)})`;
         ctx.beginPath();
-        ctx.arc(gx, galaxyY, mv.coreRadius, 0, Math.PI * 2);
+        ctx.arc(gx, gy, mv.coreRadius, 0, Math.PI * 2);
         ctx.fill();
 
         hitRadius = mv.glowRadius + 6;
@@ -1381,7 +1488,7 @@
         ctx.strokeStyle = unlocked ? `hsla(${pal.hue}, 60%, 55%, 0.3)` : `hsla(${pal.hue}, 30%, 40%, 0.06)`;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(gx, galaxyY, TUNE.GALAXY_RADIUS, 0, Math.PI * 2);
+        ctx.arc(gx, gy, TUNE.GALAXY_RADIUS, 0, Math.PI * 2);
         ctx.stroke();
       }
 
@@ -1389,27 +1496,29 @@
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(gx, galaxyY, (lit ? galaxyMapVisual(i).glowRadius : TUNE.GALAXY_RADIUS) + 5, 0, Math.PI * 2);
+        ctx.arc(gx, gy, (lit ? galaxyMapVisual(i).glowRadius : TUNE.GALAXY_RADIUS) + 5, 0, Math.PI * 2);
         ctx.stroke();
       }
 
-      galaxyBounds.push({ x: gx, y: galaxyY, r: hitRadius, index: i, selectable });
+      galaxyBounds.push({ x: gx, y: gy, r: hitRadius, index: i, selectable });
     }
+
+    ctx.restore();
 
     if (selectedGalaxy !== null) {
       const spal = galaxyPalette(selectedGalaxy);
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 15px sans-serif';
-      ctx.fillText(NAMES.galaxies[selectedGalaxy].toUpperCase(), canvas.width / 2, galaxyY + 88);
+      ctx.fillText(NAMES.galaxies[selectedGalaxy].toUpperCase(), canvas.width / 2, canvas.height - 148);
       ctx.font = '13px sans-serif';
-      ctx.fillText(spal.star + ' · ' + spal.element, canvas.width / 2, galaxyY + 106);
+      ctx.fillText(spal.star + ' · ' + spal.element, canvas.width / 2, canvas.height - 130);
     }
 
     const descendActive = selectedGalaxy !== null;
     const descendW = 160;
     const descendH = 44;
     const descendX = canvas.width / 2 - descendW / 2;
-    const descendY = galaxyY + 138;
+    const descendY = canvas.height - 114;
 
     ctx.fillStyle = descendActive ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.08)';
     ctx.fillRect(descendX, descendY, descendW, descendH);
@@ -1427,7 +1536,7 @@
     const btnW = 120;
     const btnH = 36;
     const btnGap = 16;
-    const btnY = descendY + descendH + 26;
+    const btnY = canvas.height - 50;
     const exportX = canvas.width / 2 - btnW - btnGap / 2;
     const importX = canvas.width / 2 + btnGap / 2;
 
@@ -1448,7 +1557,7 @@
 
     if (currentTime < saveMessageUntil) {
       ctx.font = '13px sans-serif';
-      ctx.fillText(saveMessage, canvas.width / 2, btnY + btnH + 24);
+      ctx.fillText(saveMessage, canvas.width / 2, btnY - 12);
     }
 
     ctx.textAlign = 'left';
@@ -1477,6 +1586,9 @@
     }
     if (state === STATE.LEAP && !debugPaused && currentTime - leapStartTime >= LEAP_DURATION_MS) {
       state = STATE.VICTORY;
+    }
+    if (state === STATE.MAP && !debugPaused) {
+      updateMapScroll(dt);
     }
     draw();
     requestAnimationFrame(loop);
