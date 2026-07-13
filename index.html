@@ -81,7 +81,9 @@
     WAVE_SPAWN_DURATION: 20.4,      // seconds a wave's arrivals are paced across
     WAVE_SPAWN_FRACTION: 0.6,       // fraction of WAVE_SPAWN_DURATION the budget arrives over
     DECAY_DAYS: 7,                  // days of absence before the deepest held galaxy reverts to dark
-    MAP_FOV: 520,                   // perspective strength: scale = MAP_FOV / z
+    CORRIDOR_FOV: 520,              // perspective strength: scale = CORRIDOR_FOV / z. Renamed from the
+                                     // old MAP_FOV so a stale localStorage TUNE override from the earlier
+                                     // FOV/(FOV+depth) corridor (same key, different formula) can't reapply.
     MAP_SPACING: 460,               // world-units between galaxies along the corridor's depth axis
     MAP_NEAR_Z: 260,                // camera sits this far in front of galaxy 1
     MAP_CORE: 46,                   // base core radius at scale 1
@@ -182,7 +184,7 @@
   function projectGalaxy(index, scroll) {
     const z = TUNE.MAP_NEAR_Z + index * TUNE.MAP_SPACING - scroll;
     if (z <= 40) return null;
-    const s = TUNE.MAP_FOV / z;
+    const s = TUNE.CORRIDOR_FOV / z;
     const off = mapOffset(index);
     return {
       x: canvas.width / 2 + off.x * s,
@@ -1621,7 +1623,7 @@
 
     const shopBtnW = 64;
     const shopBtnH = 28;
-    const shopBtnX = canvas.width - shopBtnW - 14;
+    const shopBtnX = 14;   // top-left — top-right is the debug panel's toggle button
     const shopBtnY = 12;
     ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.fillRect(shopBtnX, shopBtnY, shopBtnW, shopBtnH);
