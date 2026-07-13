@@ -20,39 +20,45 @@
 <body>
 <canvas id="c"></canvas>
 <script>
-  const SPEED = 195;
-  const RESPONSE_TURN = 0.22;   // gentle turns: weight and carve
-  const RESPONSE_SNAP = 0.9;   // hard turns / reversals: near-instant
-  const SNAP_ANGLE = 1.4;       // radians (~80deg). At/above this, use full SNAP.
-  const DEADZONE = 2;
-  const TURN_RATE = 0.15;
-  const PULSE_DURATION = 180;
-  const MARGIN = 24;
-  const ENEMY_SPEED = 110;
-  const ENEMY_TURN = 0.045;   // LOW. The enemy commits to a heading and
-                              // overshoots when the player cuts across it.
-  const SPAWN_INTERVAL = 1.2;   // seconds between spawns
-  const MAX_ENEMIES = 85;
-  const SEPARATION_RADIUS = 28;   // px — how close before they push apart
-  const CHASE_WEIGHT = 1.0;
-  const SEPARATION_WEIGHT = 1.2;  // higher = they spread more, chase less
-  const PLAYER_RADIUS = 14;
-  const ENEMY_RADIUS = 9;
-  const CHASE_WEIGHT_TOUCHING = 0.6;   // lower pull once already at contact — press, don't grind
-  const PLAYER_MAX_HP = 100;
-  const CONTACT_DPS = 12;
-  const FIRE_RATE = 0.45;
-  const BULLET_SPEED = 520;
-  const BULLET_DAMAGE = 10;
-  const ENEMY_MAX_HP = 10;
-  const BULLET_RADIUS = 4;
-  const TARGET_DROP_RANGE = 420;   // px — drop target beyond this
-  const HIT_FLASH_MS = 60;
-  const KNOCKBACK = 40;
-  const SHAKE_KILL = 1.5;
-  const SHAKE_DECAY_MS = 80;
-  const DEATH_BURST_MS = 400;
-  const IMPACT_SPARK_MS = 120;
+  const DEBUG = true;
+
+  const TUNE = {
+    SPEED: 195,
+    RESPONSE_TURN: 0.22,   // gentle turns: weight and carve
+    RESPONSE_SNAP: 0.9,    // hard turns / reversals: near-instant
+    SNAP_ANGLE: 1.4,       // radians (~80deg). At/above this, use full SNAP.
+    DEADZONE: 2,
+    TURN_RATE: 0.15,
+    PULSE_DURATION: 180,
+    MARGIN: 24,
+    ENEMY_SPEED: 110,
+    ENEMY_TURN: 0.045,     // LOW. The enemy commits to a heading and
+                           // overshoots when the player cuts across it.
+    SPAWN_INTERVAL: 1.2,   // seconds between spawns
+    MAX_ENEMIES: 85,
+    SEPARATION_RADIUS: 28, // px — how close before they push apart
+    CHASE_WEIGHT: 1.0,
+    SEPARATION_WEIGHT: 1.2, // higher = they spread more, chase less
+    PLAYER_RADIUS: 14,
+    ENEMY_RADIUS: 9,
+    CHASE_WEIGHT_TOUCHING: 0.6, // lower pull once already at contact — press, don't grind
+    PLAYER_MAX_HP: 100,
+    CONTACT_DPS: 12,
+    FIRE_RATE: 0.45,
+    BULLET_SPEED: 520,
+    BULLET_DAMAGE: 10,
+    ENEMY_MAX_HP: 10,
+    BULLET_RADIUS: 4,
+    TARGET_DROP_RANGE: 420, // px — drop target beyond this
+    HIT_FLASH_MS: 60,
+    KNOCKBACK: 40,
+    SHAKE_KILL: 1.5,
+    SHAKE_DECAY_MS: 80,
+    DEATH_BURST_MS: 400,
+    IMPACT_SPARK_MS: 120,
+    TRAIL_LENGTH: 10,
+    THUMB_OFFSET: 15
+  };
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -71,7 +77,7 @@
     vx: 0,
     vy: 0,
     angle: -Math.PI / 2,
-    hp: PLAYER_MAX_HP
+    hp: TUNE.PLAYER_MAX_HP
   };
   player.x = canvas.width / 2;
   player.y = canvas.height / 2;
@@ -81,9 +87,9 @@
   function spawnEnemy() {
     const pad = 40;
     const edge = Math.floor(Math.random() * 4);
-    const speed = ENEMY_SPEED * (0.9 + Math.random() * 0.2);   // +/-10%
-    const turn = ENEMY_TURN * (0.85 + Math.random() * 0.3);
-    const hp = ENEMY_MAX_HP;
+    const speed = TUNE.ENEMY_SPEED * (0.9 + Math.random() * 0.2);   // +/-10%
+    const turn = TUNE.ENEMY_TURN * (0.85 + Math.random() * 0.3);
+    const hp = TUNE.ENEMY_MAX_HP;
     if (edge === 0) return { x: Math.random() * canvas.width, y: -pad, vx: 0, vy: 0, angle: 0, speed, turn, hp };
     if (edge === 1) return { x: canvas.width + pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0, speed, turn, hp };
     if (edge === 2) return { x: Math.random() * canvas.width, y: canvas.height + pad, vx: 0, vy: 0, angle: 0, speed, turn, hp };
@@ -126,7 +132,6 @@
   let fingerY = 0;
   let touchStartTime = 0;
 
-  const TRAIL_LENGTH = 10;
   const trail = [];
 
   function restart() {
@@ -135,7 +140,7 @@
     player.vx = 0;
     player.vy = 0;
     player.angle = -Math.PI / 2;
-    player.hp = PLAYER_MAX_HP;
+    player.hp = TUNE.PLAYER_MAX_HP;
     enemies.length = 0;
     spawnTimer = 0;
     trail.length = 0;
@@ -212,14 +217,14 @@
       const toX = fingerX - originX;
       const toY = fingerY - originY;
       const len = Math.hypot(toX, toY);
-      if (len > DEADZONE) {
-        targetX = (toX / len) * SPEED;
-        targetY = (toY / len) * SPEED;
+      if (len > TUNE.DEADZONE) {
+        targetX = (toX / len) * TUNE.SPEED;
+        targetY = (toY / len) * TUNE.SPEED;
       }
     } else {
       const key = getKeyVector();
-      targetX = key.x * SPEED;
-      targetY = key.y * SPEED;
+      targetX = key.x * TUNE.SPEED;
+      targetY = key.y * TUNE.SPEED;
     }
 
     const curLen = Math.hypot(player.vx, player.vy);
@@ -229,39 +234,39 @@
       const dot = (player.vx * targetX + player.vy * targetY) / (curLen * targetLen);
       angleBetween = Math.acos(Math.max(-1, Math.min(1, dot)));
     }
-    const t = Math.min(Math.max(angleBetween / SNAP_ANGLE, 0), 1);
-    const response = RESPONSE_TURN + (RESPONSE_SNAP - RESPONSE_TURN) * t;
+    const t = Math.min(Math.max(angleBetween / TUNE.SNAP_ANGLE, 0), 1);
+    const response = TUNE.RESPONSE_TURN + (TUNE.RESPONSE_SNAP - TUNE.RESPONSE_TURN) * t;
 
     player.vx += (targetX - player.vx) * response;
     player.vy += (targetY - player.vy) * response;
 
     const speed = Math.hypot(player.vx, player.vy);
-    if (speed > SPEED) {
-      player.vx = (player.vx / speed) * SPEED;
-      player.vy = (player.vy / speed) * SPEED;
+    if (speed > TUNE.SPEED) {
+      player.vx = (player.vx / speed) * TUNE.SPEED;
+      player.vy = (player.vy / speed) * TUNE.SPEED;
     }
 
     player.x += player.vx * dt;
     player.y += player.vy * dt;
 
-    if (player.x <= MARGIN || player.x >= window.innerWidth - MARGIN) {
+    if (player.x <= TUNE.MARGIN || player.x >= window.innerWidth - TUNE.MARGIN) {
       player.vx = 0;
     }
-    player.x = Math.max(MARGIN, Math.min(window.innerWidth - MARGIN, player.x));
+    player.x = Math.max(TUNE.MARGIN, Math.min(window.innerWidth - TUNE.MARGIN, player.x));
 
-    if (player.y <= MARGIN || player.y >= window.innerHeight - MARGIN) {
+    if (player.y <= TUNE.MARGIN || player.y >= window.innerHeight - TUNE.MARGIN) {
       player.vy = 0;
     }
-    player.y = Math.max(MARGIN, Math.min(window.innerHeight - MARGIN, player.y));
+    player.y = Math.max(TUNE.MARGIN, Math.min(window.innerHeight - TUNE.MARGIN, player.y));
 
     if (speed > 0.001) {
       const targetAngle = Math.atan2(player.vy, player.vx);
       let diff = ((targetAngle - player.angle + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
-      player.angle += diff * TURN_RATE;
+      player.angle += diff * TUNE.TURN_RATE;
     }
 
     trail.push({ x: player.x, y: player.y });
-    if (trail.length > TRAIL_LENGTH) trail.shift();
+    if (trail.length > TUNE.TRAIL_LENGTH) trail.shift();
   }
 
   function cellKey(cx, cy) {
@@ -271,7 +276,7 @@
   function buildGrid() {
     const grid = new Map();
     for (const e of enemies) {
-      const key = cellKey(Math.floor(e.x / SEPARATION_RADIUS), Math.floor(e.y / SEPARATION_RADIUS));
+      const key = cellKey(Math.floor(e.x / TUNE.SEPARATION_RADIUS), Math.floor(e.y / TUNE.SEPARATION_RADIUS));
       let bucket = grid.get(key);
       if (!bucket) {
         bucket = [];
@@ -285,8 +290,8 @@
   function separationFor(enemy, grid) {
     let sepX = 0;
     let sepY = 0;
-    const cx = Math.floor(enemy.x / SEPARATION_RADIUS);
-    const cy = Math.floor(enemy.y / SEPARATION_RADIUS);
+    const cx = Math.floor(enemy.x / TUNE.SEPARATION_RADIUS);
+    const cy = Math.floor(enemy.y / TUNE.SEPARATION_RADIUS);
 
     for (let gx = cx - 1; gx <= cx + 1; gx++) {
       for (let gy = cy - 1; gy <= cy + 1; gy++) {
@@ -297,8 +302,8 @@
           const ox = enemy.x - other.x;
           const oy = enemy.y - other.y;
           const odist = Math.hypot(ox, oy);
-          if (odist > 0.001 && odist < SEPARATION_RADIUS) {
-            const strength = 1 - odist / SEPARATION_RADIUS;
+          if (odist > 0.001 && odist < TUNE.SEPARATION_RADIUS) {
+            const strength = 1 - odist / TUNE.SEPARATION_RADIUS;
             const weight = strength * strength;   // squared falloff — soft near the edge
             sepX += (ox / odist) * weight;
             sepY += (oy / odist) * weight;
@@ -317,7 +322,7 @@
 
   function updateEnemies(dt) {
     spawnTimer += dt;
-    if (spawnTimer >= SPAWN_INTERVAL && enemies.length < MAX_ENEMIES) {
+    if (spawnTimer >= TUNE.SPAWN_INTERVAL && enemies.length < TUNE.MAX_ENEMIES) {
       spawnTimer = 0;
       enemies.push(spawnEnemy());
     }
@@ -338,11 +343,11 @@
 
       const sep = separationFor(enemy, grid);
 
-      const touchDist = PLAYER_RADIUS + ENEMY_RADIUS;
-      const chaseWeight = dlen <= touchDist ? CHASE_WEIGHT_TOUCHING : CHASE_WEIGHT;
+      const touchDist = TUNE.PLAYER_RADIUS + TUNE.ENEMY_RADIUS;
+      const chaseWeight = dlen <= touchDist ? TUNE.CHASE_WEIGHT_TOUCHING : TUNE.CHASE_WEIGHT;
 
-      let desiredX = chaseX * chaseWeight + sep.x * SEPARATION_WEIGHT;
-      let desiredY = chaseY * chaseWeight + sep.y * SEPARATION_WEIGHT;
+      let desiredX = chaseX * chaseWeight + sep.x * TUNE.SEPARATION_WEIGHT;
+      let desiredY = chaseY * chaseWeight + sep.y * TUNE.SEPARATION_WEIGHT;
       const desiredLen = Math.hypot(desiredX, desiredY);
       if (desiredLen > 0.001) {
         desiredX /= desiredLen;
@@ -376,7 +381,7 @@
           enemy.y = player.y;
         }
 
-        player.hp -= CONTACT_DPS * dt;
+        player.hp -= TUNE.CONTACT_DPS * dt;
         if (player.hp <= 0) {
           player.hp = 0;
           gameOver = true;
@@ -388,8 +393,6 @@
       }
     }
   }
-
-  const THUMB_OFFSET = 15;
 
   function nearestEnemy() {
     let nearest = null;
@@ -407,7 +410,7 @@
   function acquireTarget() {
     if (currentTarget && !currentTarget.dead) {
       const dist = Math.hypot(currentTarget.x - player.x, currentTarget.y - player.y);
-      if (dist <= TARGET_DROP_RANGE) {
+      if (dist <= TUNE.TARGET_DROP_RANGE) {
         return currentTarget;
       }
     }
@@ -443,7 +446,7 @@
 
   function updateBullets(dt) {
     fireTimer += dt;
-    if (fireTimer >= FIRE_RATE) {
+    if (fireTimer >= TUNE.FIRE_RATE) {
       const target = acquireTarget();
       if (target) {
         fireTimer = 0;
@@ -453,7 +456,7 @@
         const rvx = target.vx;
         const rvy = target.vy;
 
-        const a = rvx * rvx + rvy * rvy - BULLET_SPEED * BULLET_SPEED;
+        const a = rvx * rvx + rvy * rvy - TUNE.BULLET_SPEED * TUNE.BULLET_SPEED;
         const b = 2 * (rx * rvx + ry * rvy);
         const c = rx * rx + ry * ry;
 
@@ -482,9 +485,9 @@
 
         bullets.push({
           x: player.x,
-          y: player.y - THUMB_OFFSET,
-          vx: (dx / len) * BULLET_SPEED,
-          vy: (dy / len) * BULLET_SPEED
+          y: player.y - TUNE.THUMB_OFFSET,
+          vx: (dx / len) * TUNE.BULLET_SPEED,
+          vy: (dy / len) * TUNE.BULLET_SPEED
         });
       }
     }
@@ -499,7 +502,7 @@
       let closestDist = Infinity;
       for (const enemy of enemies) {
         if (enemy.dead) continue;
-        if (segmentHitsCircle(px, py, nx, ny, enemy.x, enemy.y, BULLET_RADIUS + ENEMY_RADIUS)) {
+        if (segmentHitsCircle(px, py, nx, ny, enemy.x, enemy.y, TUNE.BULLET_RADIUS + TUNE.ENEMY_RADIUS)) {
           const dist = Math.hypot(enemy.x - px, enemy.y - py);
           if (dist < closestDist) {
             closestDist = dist;
@@ -512,26 +515,26 @@
       bullet.y = ny;
 
       if (closest) {
-        closest.hp -= BULLET_DAMAGE;
-        closest.flashUntil = currentTime + HIT_FLASH_MS;
+        closest.hp -= TUNE.BULLET_DAMAGE;
+        closest.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
 
         const blen = Math.hypot(bullet.vx, bullet.vy) || 1;
-        closest.x += (bullet.vx / blen) * KNOCKBACK;
-        closest.y += (bullet.vy / blen) * KNOCKBACK;
+        closest.x += (bullet.vx / blen) * TUNE.KNOCKBACK;
+        closest.y += (bullet.vy / blen) * TUNE.KNOCKBACK;
 
-        spawnParticle(nx, ny, 0, 0, IMPACT_SPARK_MS, '255,255,255', 3);
+        spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, '255,255,255', 3);
 
         bullet.dead = true;
 
         if (closest.hp <= 0) {
           closest.dead = true;
-          shakeStrength = SHAKE_KILL;
+          shakeStrength = TUNE.SHAKE_KILL;
 
           const count = 6 + Math.floor(Math.random() * 3);
           for (let i = 0; i < count; i++) {
             const angle = Math.random() * Math.PI * 2;
             const burstSpeed = 60 + Math.random() * 80;
-            spawnParticle(closest.x, closest.y, Math.cos(angle) * burstSpeed, Math.sin(angle) * burstSpeed, DEATH_BURST_MS, '255,0,0', 2.5);
+            spawnParticle(closest.x, closest.y, Math.cos(angle) * burstSpeed, Math.sin(angle) * burstSpeed, TUNE.DEATH_BURST_MS, '255,0,0', 2.5);
           }
 
           if (navigator.vibrate) navigator.vibrate(10);
@@ -564,7 +567,7 @@
       const age = (i + 1) / trail.length;
       ctx.fillStyle = `rgba(255, 255, 255, ${age * 0.35})`;
       ctx.beginPath();
-      ctx.arc(p.x, p.y - THUMB_OFFSET, 6 * age, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y - TUNE.THUMB_OFFSET, 6 * age, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -587,7 +590,7 @@
     ctx.fillStyle = '#fff';
     for (const bullet of bullets) {
       ctx.beginPath();
-      ctx.arc(bullet.x, bullet.y, BULLET_RADIUS, 0, Math.PI * 2);
+      ctx.arc(bullet.x, bullet.y, TUNE.BULLET_RADIUS, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -600,7 +603,7 @@
     }
 
     ctx.save();
-    ctx.translate(player.x, player.y - THUMB_OFFSET);
+    ctx.translate(player.x, player.y - TUNE.THUMB_OFFSET);
     ctx.rotate(player.angle);
 
     ctx.fillStyle = '#fff';
@@ -614,7 +617,7 @@
     ctx.restore();
 
     if (dragging) {
-      const pulseT = Math.min((currentTime - touchStartTime) / PULSE_DURATION, 1);
+      const pulseT = Math.min((currentTime - touchStartTime) / TUNE.PULSE_DURATION, 1);
       const ringRadius = 40 + (1 - pulseT) * 30;
       const ringAlpha = 0.25 + (1 - pulseT) * 0.35;
 
@@ -639,7 +642,7 @@
     ctx.fillRect(barX, barY, barWidth, barHeight);
 
     ctx.fillStyle = '#f00';
-    ctx.fillRect(barX, barY, barWidth * (player.hp / PLAYER_MAX_HP), barHeight);
+    ctx.fillRect(barX, barY, barWidth * (player.hp / TUNE.PLAYER_MAX_HP), barHeight);
 
     if (gameOver) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
@@ -672,7 +675,7 @@
       updateBullets(dt);
       updateParticles(dt);
       if (shakeStrength > 0) {
-        shakeStrength = Math.max(0, shakeStrength - (SHAKE_KILL / (SHAKE_DECAY_MS / 1000)) * dt);
+        shakeStrength = Math.max(0, shakeStrength - (TUNE.SHAKE_KILL / (TUNE.SHAKE_DECAY_MS / 1000)) * dt);
       }
     }
     draw();
@@ -680,6 +683,98 @@
   }
 
   requestAnimationFrame(loop);
+
+  function setupDebugPanel() {
+    const panel = document.createElement('div');
+    panel.style.cssText = `
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 280px;
+      max-height: 100vh;
+      overflow-y: auto;
+      background: rgba(0,0,0,0.85);
+      color: #fff;
+      font: 12px monospace;
+      padding: 10px;
+      z-index: 9999;
+      display: none;
+      box-sizing: border-box;
+    `;
+    document.body.appendChild(panel);
+
+    const title = document.createElement('div');
+    title.textContent = 'TUNE (~ or 3-finger tap to toggle)';
+    title.style.cssText = 'font-weight:bold; margin-bottom:8px;';
+    panel.appendChild(title);
+
+    for (const key of Object.keys(TUNE)) {
+      const value = TUNE[key];
+      const max = value !== 0 ? Math.abs(value) * 4 : 10;
+      const step = max / 200 || 0.01;
+
+      const row = document.createElement('div');
+      row.style.cssText = 'margin-bottom:8px;';
+
+      const label = document.createElement('label');
+      label.style.cssText = 'display:flex; justify-content:space-between;';
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = key;
+      const valueSpan = document.createElement('span');
+      valueSpan.textContent = value;
+      label.appendChild(nameSpan);
+      label.appendChild(valueSpan);
+      row.appendChild(label);
+
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = 0;
+      input.max = max;
+      input.step = step;
+      input.value = value;
+      input.style.cssText = 'width:100%;';
+      input.oninput = () => {
+        TUNE[key] = parseFloat(input.value);
+        valueSpan.textContent = TUNE[key];
+      };
+      row.appendChild(input);
+
+      panel.appendChild(row);
+    }
+
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = 'Copy values';
+    copyBtn.style.cssText = 'width:100%; padding:6px; margin-top:4px;';
+
+    const output = document.createElement('textarea');
+    output.readOnly = true;
+    output.style.cssText = 'width:100%; height:120px; margin-top:8px; font:11px monospace; box-sizing:border-box;';
+
+    copyBtn.onclick = () => {
+      const text = Object.keys(TUNE).map((k) => `const ${k} = ${TUNE[k]};`).join('\n');
+      output.value = text;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).catch(() => {});
+      }
+    };
+
+    panel.appendChild(copyBtn);
+    panel.appendChild(output);
+
+    function togglePanel() {
+      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    }
+
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 3) togglePanel();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === '~' || e.code === 'Backquote') togglePanel();
+    });
+  }
+
+  if (DEBUG) setupDebugPanel();
 </script>
 </body>
 </html>
