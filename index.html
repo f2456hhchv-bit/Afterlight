@@ -81,7 +81,8 @@
     WAVE_SPEED_PER_WAVE: 4,         // enemy speed = ENEMY_SPEED + n * this
     WAVE_SPAWN_DURATION: 20.4,      // seconds a wave's arrivals are paced across
     WAVE_SPAWN_FRACTION: 0.6,       // fraction of WAVE_SPAWN_DURATION the budget arrives over
-    DECAY_DAYS: 7                   // days of absence before the deepest held galaxy reverts to dark
+    DECAY_DAYS: 7,                  // days of absence before the deepest held galaxy reverts to dark
+    MAP_FOV: 260                    // field-of-view depth constant for the map corridor's perspective
   };
 
   const TUNE_DEFAULTS = { ...TUNE };
@@ -145,64 +146,67 @@
     };
   }
 
-  // Map-node visuals, scaled by depth: galaxy 1 is a dim ember, galaxy 10 is a blinding bloom.
-  function galaxyMapVisual(index) {
-    const depth = index / (GALAXY_DATA.length - 1);
-    const hue = GALAXY_DATA[index].hue;
-    return {
-      hue,
-      coreRadius: TUNE.GALAXY_RADIUS * (0.5 + depth * 0.9),    // 0.5x -> 1.4x
-      glowRadius: TUNE.GALAXY_RADIUS * (1.2 + depth * 2.4),    // 1.2x -> 3.6x (3x ratio deep/edge)
-      bloomRadius: TUNE.GALAXY_RADIUS * (1.6 + depth * 4.4),   // extra soft outer bleed, deep galaxies only
-      coreLightness: 28 + depth * 57,                          // 28% dim ember -> 85% blinding
-      coreAlpha: 0.4 + depth * 0.6,                             // 0.4 -> 1.0
-      glowAlpha: 0.06 + depth * 0.34,                           // 0.06 -> 0.4
-      bloomAlpha: depth * depth * 0.3                           // ~0 at the edge, ramps late
-    };
-  }
-
-  const GALAXY_WORLD_SPACING = 130;   // vertical world-space gap between galaxies on the map column
+  const GALAXY_WORLD_SPACING = 130;   // world-space depth gap between galaxies along the corridor
 
   function galaxyWorldY(index) {
     return index * GALAXY_WORLD_SPACING;
   }
 
-  // The background haze while browsing the map: driven purely by scroll position,
-  // not by which galaxy is selected. Blends continuously between neighbouring hues.
-  function mapHazeColor(scroll) {
-    const maxIndex = GALAXY_DATA.length - 1;
-    const raw = scroll / GALAXY_WORLD_SPACING;
-    const clamped = Math.max(0, Math.min(maxIndex, raw));
-    const i0 = Math.floor(clamped);
-    const i1 = Math.min(maxIndex, i0 + 1);
-    const frac = clamped - i0;
-    const hue0 = GALAXY_DATA[i0].hue;
-    const hue1 = GALAXY_DATA[i1].hue;
-    const hue = hue0 + (hue1 - hue0) * frac;
-    const depthFrac = clamped / maxIndex;
+  // True perspective: depth increases with index (and decreases as the camera
+  // scrolls toward it), scale = FOV / (FOV + depth). Shared by every galaxy,
+  // including galaxy 10, so size is driven by ONE consistent formula.
+  function galaxyPerspective(index, scroll) {
+    const depth = TUNE.MAP_FOV + galaxyWorldY(index) - scroll;
+    return { depth, scale: TUNE.MAP_FOV / (TUNE.MAP_FOV + Math.max(1, depth)) };
+  }
+
+  // Map-node visuals. Intrinsic brightness/saturation is fixed per galaxy (galaxy 1
+  // is dim, galaxy 10 is blinding) — size alone comes from perspective scale.
+  function galaxyMapVisual(index, scroll) {
+    const brightness = index / (GALAXY_DATA.length - 1);
+    const hue = GALAXY_DATA[index].hue;
+    const persp = galaxyPerspective(index, scroll);
+    const scale = persp.scale;
     return {
       hue,
-      depthFrac,
-      background: `hsl(${hue.toFixed(2)}, 65%, ${(depthFrac * 24).toFixed(2)}%)`,
-      washAlpha: Math.pow(depthFrac, 3) * 0.35   // negligible until deep, overwhelming near the centre
+      depth: persp.depth,
+      coreRadius: scale * 30,
+      glowRadius: scale * 90,
+      bloomRadius: scale * 170,
+      coreLightness: 28 + brightness * 57,     // 28% dim ember -> 85% blinding
+      coreAlpha: 0.4 + brightness * 0.6,        // 0.4 -> 1.0
+      glowAlpha: 0.08 + brightness * 0.32,      // 0.08 -> 0.4
+      bloomAlpha: brightness * brightness * 0.25
     };
   }
 
-  // Galaxy 10 alone: not coloured by hue like every other galaxy. A hard white
-  // point visible from anywhere in the corridor, growing overwhelming as it nears.
+  // Galaxy 10 alone: never coloured by hue. A hard white point, always at the
+  // vanishing point, sized by the same perspective formula as every other galaxy.
   function galaxyTenVisual(scroll) {
-    const targetWorldY = galaxyWorldY(GALAXY_DATA.length - 1);
-    const totalRange = targetWorldY - galaxyWorldY(0);
-    const distanceRemaining = Math.max(0, targetWorldY - scroll);
-    const proximity = 1 - Math.min(1, distanceRemaining / totalRange);   // 0 from galaxy 1, 1 once arrived
+    const persp = galaxyPerspective(GALAXY_DATA.length - 1, scroll);
+    const scale = persp.scale;
     return {
-      proximity,
-      coreRadius: TUNE.GALAXY_RADIUS * (0.12 + proximity * 2.3),
-      glowRadius: TUNE.GALAXY_RADIUS * (1.0 + proximity * 6),
-      outerRadius: TUNE.GALAXY_RADIUS * (2.2 + proximity * 10),
-      glowAlpha: 0.08 + proximity * 0.42,
-      outerAlpha: 0.03 + proximity * 0.22
+      depth: persp.depth,
+      coreRadius: scale * 32,
+      glowRadius: scale * 100,
+      outerRadius: scale * 190,
+      coreAlpha: 1,          // always the brightest pixel on screen, even at maximum distance
+      glowAlpha: 0.55,
+      outerAlpha: 0.22
     };
+  }
+
+  // Radial gradient light: hot at the centre, falling to fully transparent. Meant
+  // to be painted with globalCompositeOperation = 'lighter' so overlaps add.
+  function drawGlow(x, y, radius, hue, sat, lightness, alpha) {
+    if (radius < 0.5 || alpha < 0.005) return;
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    grad.addColorStop(0, `hsla(${hue}, ${sat}%, ${lightness}%, ${alpha})`);
+    grad.addColorStop(1, `hsla(${hue}, ${sat}%, ${lightness}%, 0)`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   const DEFAULT_GALAXY_NAMES = ['Edge', 'Cinder Reach', 'Hollow Drift', 'Ashfall Void', 'Pale March', 'Ember Rift', 'Quiet Expanse', 'Dusk Haven', 'Last Light', 'Centre'];
@@ -536,7 +540,11 @@
       state = STATE.RUN;
       return;
     }
-    for (const gb of galaxyBounds) {
+    // Galaxies are concentric now (shared vanishing point); check the smallest
+    // (farthest) radius first so a precise tap on a distant point isn't always
+    // swallowed by a much larger, nearer glow surrounding it.
+    for (let gi = galaxyBounds.length - 1; gi >= 0; gi--) {
+      const gb = galaxyBounds[gi];
       if (gb.selectable && Math.hypot(x - gb.x, y - gb.y) <= gb.r) {
         selectedGalaxy = gb.index;
         return;
@@ -1434,13 +1442,10 @@
     const HEADER_HEIGHT = 140;
     const FOOTER_HEIGHT = 160;
 
-    const haze = mapHazeColor(mapScroll);
-    ctx.fillStyle = haze.background;
+    // The void is always pure black. Any light here comes only from the
+    // galaxies' own additive glows below, never a background fill.
+    ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    if (haze.washAlpha > 0.001) {
-      ctx.fillStyle = `rgba(255, 255, 255, ${haze.washAlpha.toFixed(3)})`;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
 
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
@@ -1466,95 +1471,60 @@
     const scrollBottom = canvas.height - FOOTER_HEIGHT;
     const viewCenterY = (scrollTop + scrollBottom) / 2;
     const gx = canvas.width / 2;
+    const gy = viewCenterY;   // every galaxy shares one vanishing point; only scale differs
 
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, scrollTop, canvas.width, scrollBottom - scrollTop);
     ctx.clip();
+    ctx.globalCompositeOperation = 'lighter';   // light adds and brightens where glows overlap
 
     const lastIndex = galaxies.length - 1;
+    let selectedScreenRadius = 0;
 
     galaxyBounds = [];
     for (let i = 0; i < lastIndex; i++) {
-      const gy = viewCenterY + galaxyWorldY(i) - mapScroll;
+      const persp = galaxyPerspective(i, mapScroll);
+      if (persp.depth <= 1) continue;   // long since passed behind the camera
+
       const lit = galaxies[i] === 1;
       const unlocked = i === 0 || galaxies[i - 1] === 1;
       const selectable = unlocked;
       const pal = galaxyPalette(i);
-      let hitRadius = TUNE.GALAXY_RADIUS + 6;
+      let hitRadius = TUNE.GALAXY_RADIUS * persp.scale + 6;
 
       if (lit) {
-        const mv = galaxyMapVisual(i);
-        if (mv.bloomAlpha > 0.001) {
-          ctx.fillStyle = `hsla(${mv.hue}, 70%, 60%, ${mv.bloomAlpha.toFixed(3)})`;
-          ctx.beginPath();
-          ctx.arc(gx, gy, mv.bloomRadius, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        ctx.fillStyle = `hsla(${mv.hue}, 75%, 60%, ${mv.glowAlpha.toFixed(3)})`;
-        ctx.beginPath();
-        ctx.arc(gx, gy, mv.glowRadius, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = `hsla(${mv.hue}, 80%, ${mv.coreLightness.toFixed(1)}%, ${mv.coreAlpha.toFixed(3)})`;
-        ctx.beginPath();
-        ctx.arc(gx, gy, mv.coreRadius, 0, Math.PI * 2);
-        ctx.fill();
-
+        const mv = galaxyMapVisual(i, mapScroll);
+        drawGlow(gx, gy, mv.bloomRadius, mv.hue, 70, 60, mv.bloomAlpha);
+        drawGlow(gx, gy, mv.glowRadius, mv.hue, 75, 60, mv.glowAlpha);
+        drawGlow(gx, gy, mv.coreRadius, mv.hue, 90, mv.coreLightness, mv.coreAlpha);
         hitRadius = mv.glowRadius + 6;
       } else {
         ctx.strokeStyle = unlocked ? `hsla(${pal.hue}, 60%, 55%, 0.3)` : `hsla(${pal.hue}, 30%, 40%, 0.06)`;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(gx, gy, TUNE.GALAXY_RADIUS, 0, Math.PI * 2);
+        ctx.arc(gx, gy, TUNE.GALAXY_RADIUS * persp.scale, 0, Math.PI * 2);
         ctx.stroke();
       }
 
-      if (selectedGalaxy === i) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(gx, gy, (lit ? galaxyMapVisual(i).glowRadius : TUNE.GALAXY_RADIUS) + 5, 0, Math.PI * 2);
-        ctx.stroke();
-      }
+      if (selectedGalaxy === i) selectedScreenRadius = hitRadius - 6;
 
       galaxyBounds.push({ x: gx, y: gy, r: hitRadius, index: i, selectable });
     }
 
-    // Galaxy 10: always visible, always white, drawn last so nothing eclipses it.
-    // Its screen position clamps to the bottom of the corridor when its true
-    // position would scroll off-screen, so it's glimpsed from the very first galaxy.
+    // Galaxy 10: never coloured by hue, always the brightest pixel on screen.
+    // Drawn last, on the same perspective formula, so nothing eclipses it.
     {
       const i = lastIndex;
-      const idealGy = viewCenterY + galaxyWorldY(i) - mapScroll;
-      const gy = Math.min(idealGy, scrollBottom - 16);
       const unlocked = galaxies[i - 1] === 1;
       const selectable = unlocked;
       const tv = galaxyTenVisual(mapScroll);
 
-      ctx.fillStyle = `rgba(255, 255, 255, ${tv.outerAlpha.toFixed(3)})`;
-      ctx.beginPath();
-      ctx.arc(gx, gy, tv.outerRadius, 0, Math.PI * 2);
-      ctx.fill();
+      drawGlow(gx, gy, tv.outerRadius, 0, 0, 100, tv.outerAlpha);
+      drawGlow(gx, gy, tv.glowRadius, 0, 0, 100, tv.glowAlpha);
+      drawGlow(gx, gy, tv.coreRadius, 0, 0, 100, tv.coreAlpha);
 
-      ctx.fillStyle = `rgba(255, 255, 255, ${tv.glowAlpha.toFixed(3)})`;
-      ctx.beginPath();
-      ctx.arc(gx, gy, tv.glowRadius, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.arc(gx, gy, tv.coreRadius, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (selectedGalaxy === i) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(gx, gy, tv.glowRadius + 5, 0, Math.PI * 2);
-        ctx.stroke();
-      }
+      if (selectedGalaxy === i) selectedScreenRadius = tv.glowRadius;
 
       galaxyBounds.push({ x: gx, y: gy, r: tv.glowRadius + 6, index: i, selectable });
     }
@@ -1562,6 +1532,12 @@
     ctx.restore();
 
     if (selectedGalaxy !== null) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(gx, gy, selectedScreenRadius + 6, 0, Math.PI * 2);
+      ctx.stroke();
+
       const spal = galaxyPalette(selectedGalaxy);
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 15px sans-serif';
