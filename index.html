@@ -684,6 +684,15 @@
   }
   function pointerUp(x, y) {
     if (state === STATE.MAP) {
+      // mapDragging is only ever set true by pointerDown's OWN STATE.MAP branch.
+      // If it's false here, this gesture's pointerDown fired in a different
+      // state (e.g. SHOP) that has since closed back to MAP — the map never
+      // owned this touch, so it must not resolve it as a tap. Without this
+      // guard, tapping BACK/X in the shop (consumed on pointerDown, which
+      // flips state to MAP) let the matching pointerUp fall through here and
+      // re-hit the map's SHOP button at the same coordinates, reopening it
+      // instantly — the flicker-and-snap-back.
+      if (!mapDragging) return;
       mapDragging = false;
       if (mapDragMoved < MAP_TAP_THRESHOLD) {
         handleMapTap(x, y);
@@ -1564,8 +1573,12 @@
     ctx.font = 'bold 12px sans-serif';
     ctx.fillText('BACK', shopBackBounds.x + backW / 2, shopBackBounds.y + backH / 2 + 4);
 
+    // Top-left only — the top-right corner belongs to the DOM debug toggle
+    // (a real <button>, z-index 10000, always above the canvas). Anything
+    // drawn there is buried under it, so the close X sits next to BACK instead.
     const closeSize = 28;
-    shopCloseBounds = { x: canvas.width - closeSize - 14, y: 12, w: closeSize, h: closeSize };
+    const closeGap = 8;
+    shopCloseBounds = { x: shopBackBounds.x + backW + closeGap, y: 12, w: closeSize, h: closeSize };
     ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.fillRect(shopCloseBounds.x, shopCloseBounds.y, closeSize, closeSize);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
