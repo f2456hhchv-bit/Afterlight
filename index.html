@@ -20,6 +20,34 @@
 <body>
 <canvas id="c"></canvas>
 <script>
+  // Renders a fatal error straight to the canvas instead of failing silently.
+  // Independent of every other const/let in this file (grabs its own canvas
+  // reference) so it still works no matter how early in init things blew up --
+  // in particular, it must not depend on the `canvas`/`ctx` consts declared
+  // further down, since an error before that point would otherwise crash the
+  // error handler itself.
+  function drawFatalError(err) {
+    try {
+      const c = document.getElementById('c');
+      const errCtx = c.getContext('2d');
+      const w = c.width || window.innerWidth;
+      const h = c.height || window.innerHeight;
+      errCtx.fillStyle = '#000';
+      errCtx.fillRect(0, 0, w, h);
+      errCtx.fillStyle = '#f44';
+      errCtx.font = '12px monospace';
+      errCtx.textAlign = 'left';
+      const msg = String((err && err.stack) || err);
+      msg.split('\n').forEach((line, i) => {
+        errCtx.fillText(line.slice(0, 70), 10, 30 + i * 16);
+      });
+    } catch (e2) {
+      // Nothing more we can do without a console.
+    }
+  }
+
+  try {
+
   const DEBUG = true;
 
   const TUNE = {
@@ -735,6 +763,15 @@
   let inBreather = false;
   let breatherTimer = 0;
 
+  // Must be declared before the startWave(1) call a few lines down --
+  // difficultyWave() reads these, and a `let` read before its own
+  // declaration line throws (temporal dead zone), even via a function call
+  // chain. That was the actual black-screen bug: these were declared much
+  // later in the file (near the map-UI state), after startWave(1) already
+  // ran at top level and crashed trying to read endlessMode.
+  let endlessMode = false;
+  let endlessDepth = 0;
+
   // The wave-within-galaxy number (1-10) used for the spawn/breather cycle
   // itself, vs. the number fed to difficulty formulas. In story mode they're
   // the same thing. In endless, wave keeps resetting to 1 each depth (so the
@@ -846,8 +883,6 @@
   let shopBackBounds = null;
   let shopCloseBounds = null;
   let endlessButtonBounds = null;
-  let endlessMode = false;
-  let endlessDepth = 0;
   let saveMessage = '';
   let saveMessageUntil = 0;
 
@@ -2636,32 +2671,39 @@
   let currentTime = 0;
 
   function loop(timestamp) {
-    if (lastTime === null) lastTime = timestamp;
-    const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
-    lastTime = timestamp;
-    currentTime = timestamp;
+    try {
+      if (lastTime === null) lastTime = timestamp;
+      const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+      lastTime = timestamp;
+      currentTime = timestamp;
 
-    if (state === STATE.RUN && !paused && !debugPaused && !kekuMessageActive) {
-      update(dt);
-      updateWave(dt);
-      updateEnemies(dt);
-      updateBoss(dt);
-      updateBullets(dt);
-      updateParticles(dt);
-      updateMotes(dt);
-      if (shakeStrength > 0) {
-        shakeStrength = Math.max(0, shakeStrength - (TUNE.SHAKE_KILL / (TUNE.SHAKE_DECAY_MS / 1000)) * dt);
+      if (state === STATE.RUN && !paused && !debugPaused && !kekuMessageActive) {
+        update(dt);
+        updateWave(dt);
+        updateEnemies(dt);
+        updateBoss(dt);
+        updateBullets(dt);
+        updateParticles(dt);
+        updateMotes(dt);
+        if (shakeStrength > 0) {
+          shakeStrength = Math.max(0, shakeStrength - (TUNE.SHAKE_KILL / (TUNE.SHAKE_DECAY_MS / 1000)) * dt);
+        }
       }
+      if (state === STATE.LEAP && !debugPaused && currentTime - leapStartTime >= LEAP_DURATION_MS) {
+        state = STATE.VICTORY;
+      }
+      if (state === STATE.MAP && !debugPaused) {
+        updateMapScroll();
+      }
+      syncAudioGain();
+      draw();
+      requestAnimationFrame(loop);
+    } catch (err) {
+      // Draw and STOP -- do not reschedule. Re-throwing every frame would
+      // either spam-redraw the message or, if draw() itself is what's
+      // throwing, never manage to show it at all.
+      drawFatalError(err);
     }
-    if (state === STATE.LEAP && !debugPaused && currentTime - leapStartTime >= LEAP_DURATION_MS) {
-      state = STATE.VICTORY;
-    }
-    if (state === STATE.MAP && !debugPaused) {
-      updateMapScroll();
-    }
-    syncAudioGain();
-    draw();
-    requestAnimationFrame(loop);
   }
 
   openMap();
@@ -2970,6 +3012,10 @@
   }
 
   if (DEBUG) setupDebugPanel();
+
+  } catch (err) {
+    drawFatalError(err);
+  }
 </script>
 </body>
 </html>
