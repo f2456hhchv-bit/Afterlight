@@ -91,6 +91,7 @@
     CORRIDOR_DRIFT: 90,                  // lateral wander so the corridor reads as space, not a pipe
     CORRIDOR_SCROLL_SPEED: 1.9,
     CORRIDOR_FRICTION: 0.92,
+    KEKU_WORLD_Z: 8280,             // Keku's fixed depth, well beyond galaxy 10 (world Z 4140) — he never gets close
     COST_BASE: 40,                  // shop upgrade level n costs COST_BASE * (n ^ COST_POWER)
     COST_POWER: 1.6,
     SHOP_MAX_LEVEL: 5,
@@ -1697,22 +1698,14 @@
 
       const data = GALAXY_DATA[i];
       const lit = galaxies[i] === 1;
-      const isMouth = i === lastIndex;
-      const power = isMouth ? 1 : (lit ? 1 : 0.10);
+      const power = lit ? 1 : 0.10;
 
       if (p.glow > 0.5) {
         const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.glow);
-        if (isMouth) {
-          grd.addColorStop(0, `rgba(255,255,255,${0.95 * power})`);
-          grd.addColorStop(0.12, `rgba(240,244,255,${0.55 * power})`);
-          grd.addColorStop(0.45, `rgba(180,200,255,${0.14 * power})`);
-          grd.addColorStop(1, 'rgba(120,150,255,0)');
-        } else {
-          grd.addColorStop(0, mapHsla(data.hue, 90, 72, 0.85 * power));
-          grd.addColorStop(0.18, mapHsla(data.hue, 88, 58, 0.42 * power));
-          grd.addColorStop(0.55, mapHsla(data.hue, 85, 45, 0.10 * power));
-          grd.addColorStop(1, mapHsla(data.hue, 80, 40, 0));
-        }
+        grd.addColorStop(0, mapHsla(data.hue, 90, 72, 0.85 * power));
+        grd.addColorStop(0.18, mapHsla(data.hue, 88, 58, 0.42 * power));
+        grd.addColorStop(0.55, mapHsla(data.hue, 85, 45, 0.10 * power));
+        grd.addColorStop(1, mapHsla(data.hue, 80, 40, 0));
         ctx.fillStyle = grd;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.glow, 0, Math.PI * 2);
@@ -1720,13 +1713,13 @@
       }
 
       if (p.core > 0.4) {
-        ctx.fillStyle = isMouth ? 'rgba(255,255,255,1)' : (lit ? mapHsla(data.hue, 95, 66, 1) : mapHsla(data.hue, 60, 30, 0.5));
+        ctx.fillStyle = lit ? mapHsla(data.hue, 95, 66, 1) : mapHsla(data.hue, 60, 30, 0.5);
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.core * (isMouth ? 0.55 : (lit ? 0.42 : 0.30)), 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, p.core * (lit ? 0.42 : 0.30), 0, Math.PI * 2);
         ctx.fill();
       }
 
-      if (!lit && !isMouth && p.core > 3) {
+      if (!lit && p.core > 3) {
         ctx.globalCompositeOperation = 'source-over';
         ctx.strokeStyle = mapHsla(data.hue, 55, 40, 0.55);
         ctx.lineWidth = Math.max(1, 1.6 * p.s);
@@ -1737,7 +1730,45 @@
       }
     }
 
+    // Keku: an eleventh object beyond galaxy 10, at the true vanishing point.
+    // Not a galaxy — no lit/dark state, no drift, not in the tap-select loop
+    // below. His depth never gets close enough to be more than a hard point.
+    const kekuZ = TUNE.CORRIDOR_NEAR_Z + TUNE.KEKU_WORLD_Z - mapScroll;
+    let kekuScreen = null;
+    if (kekuZ > 40) {
+      const kekuScale = TUNE.CORRIDOR_FOV / kekuZ;
+      const kx = canvas.width / 2;
+      const ky = canvas.height / 2;
+      const kGlow = TUNE.CORRIDOR_GLOW * kekuScale;
+      const kCore = TUNE.CORRIDOR_CORE * kekuScale;
+      if (kGlow > 0.5) {
+        const grd = ctx.createRadialGradient(kx, ky, 0, kx, ky, kGlow);
+        grd.addColorStop(0, 'rgba(255,255,255,0.95)');
+        grd.addColorStop(0.12, 'rgba(240,244,255,0.55)');
+        grd.addColorStop(0.45, 'rgba(180,200,255,0.14)');
+        grd.addColorStop(1, 'rgba(120,150,255,0)');
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.arc(kx, ky, kGlow, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (kCore > 0.4) {
+        ctx.fillStyle = 'rgba(255,255,255,1)';
+        ctx.beginPath();
+        ctx.arc(kx, ky, kCore * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      kekuScreen = { x: kx, y: ky, core: kCore };
+    }
+
     ctx.restore();
+
+    if (kekuScreen) {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fff';
+      ctx.font = '600 12px ui-monospace, monospace';
+      ctx.fillText('KEKU', kekuScreen.x, kekuScreen.y + Math.max(kekuScreen.core * 0.55, 10) + 16);
+    }
 
     const sp = projectGalaxy(selectedGalaxy, mapScroll);
     if (sp && sp.core > 2) {
@@ -1749,7 +1780,6 @@
       ctx.stroke();
     }
 
-    const isMouth = selectedGalaxy === lastIndex;
     const spal = galaxyPalette(selectedGalaxy);
     ctx.textAlign = 'center';
     ctx.fillStyle = '#fff';
@@ -1757,7 +1787,7 @@
     ctx.fillText(NAMES.galaxies[selectedGalaxy].toUpperCase(), canvas.width / 2, canvas.height - 92);
     ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
     ctx.font = '11px ui-monospace, monospace';
-    ctx.fillText((isMouth ? '—' : spal.star) + '  ·  ' + (isMouth ? '—' : spal.element), canvas.width / 2, canvas.height - 72);
+    ctx.fillText(spal.star + '  ·  ' + spal.element, canvas.width / 2, canvas.height - 72);
 
     const descendW = 140;
     const descendH = 34;
