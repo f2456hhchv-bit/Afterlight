@@ -145,9 +145,27 @@
     };
   }
 
+  // Map-node visuals, scaled by depth: galaxy 1 is a dim ember, galaxy 10 is a blinding bloom.
+  function galaxyMapVisual(index) {
+    const depth = index / (GALAXY_DATA.length - 1);
+    const hue = GALAXY_DATA[index].hue;
+    return {
+      hue,
+      coreRadius: TUNE.GALAXY_RADIUS * (0.5 + depth * 0.9),    // 0.5x -> 1.4x
+      glowRadius: TUNE.GALAXY_RADIUS * (1.2 + depth * 2.4),    // 1.2x -> 3.6x (3x ratio deep/edge)
+      bloomRadius: TUNE.GALAXY_RADIUS * (1.6 + depth * 4.4),   // extra soft outer bleed, deep galaxies only
+      coreLightness: 28 + depth * 57,                          // 28% dim ember -> 85% blinding
+      coreAlpha: 0.4 + depth * 0.6,                             // 0.4 -> 1.0
+      glowAlpha: 0.06 + depth * 0.34,                           // 0.06 -> 0.4
+      bloomAlpha: depth * depth * 0.3                           // ~0 at the edge, ramps late
+    };
+  }
+
+  const DEFAULT_GALAXY_NAMES = ['Edge', 'Cinder Reach', 'Hollow Drift', 'Ashfall Void', 'Pale March', 'Ember Rift', 'Quiet Expanse', 'Dusk Haven', 'Last Light', 'Centre'];
+
   function defaultNames() {
     return {
-      galaxies: GALAXY_DATA.map((g) => g.star),
+      galaxies: DEFAULT_GALAXY_NAMES.slice(),
       boss: 'The Maw',
       enemy: 'The Hollow'
     };
@@ -1316,17 +1334,17 @@
 
     const heldCount = galaxies.filter((g) => g === 1).length;
     ctx.font = '14px sans-serif';
-    ctx.fillText('HELD: ' + heldCount + ' / ' + galaxies.length, canvas.width / 2, canvas.height / 2 - 80);
-    ctx.fillText('DEEPEST HELD: ' + deepestHeld, canvas.width / 2, canvas.height / 2 - 62);
+    ctx.fillText('HELD: ' + heldCount + ' / ' + galaxies.length, canvas.width / 2, canvas.height / 2 - 76);
+    ctx.fillText('DEEPEST HELD: ' + deepestHeld, canvas.width / 2, canvas.height / 2 - 58);
 
     if (decayedGalaxyIndex !== -1) {
       ctx.fillStyle = 'rgba(255, 140, 140, 0.9)';
       ctx.font = '12px sans-serif';
-      ctx.fillText('THE DARK TOOK ' + NAMES.galaxies[decayedGalaxyIndex].toUpperCase() + ' WHILE YOU WERE AWAY.', canvas.width / 2, canvas.height / 2 - 44);
+      ctx.fillText('THE DARK TOOK ' + NAMES.galaxies[decayedGalaxyIndex].toUpperCase() + ' WHILE YOU WERE AWAY.', canvas.width / 2, canvas.height / 2 - 40);
       ctx.fillStyle = '#fff';
     }
 
-    const galaxyY = canvas.height / 2 - 40;
+    const galaxyY = canvas.height / 2 + 40;
     const galaxyMargin = 40;
     const galaxySpacing = (canvas.width - galaxyMargin * 2) / (galaxies.length - 1);
 
@@ -1337,20 +1355,31 @@
       const unlocked = i === 0 || galaxies[i - 1] === 1;
       const selectable = unlocked;
       const pal = galaxyPalette(i);
+      let hitRadius = TUNE.GALAXY_RADIUS + 6;
 
       if (lit) {
-        ctx.fillStyle = `hsla(${pal.hue}, 85%, 60%, 0.3)`;
+        const mv = galaxyMapVisual(i);
+        if (mv.bloomAlpha > 0.001) {
+          ctx.fillStyle = `hsla(${mv.hue}, 70%, 60%, ${mv.bloomAlpha.toFixed(3)})`;
+          ctx.beginPath();
+          ctx.arc(gx, galaxyY, mv.bloomRadius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.fillStyle = `hsla(${mv.hue}, 75%, 60%, ${mv.glowAlpha.toFixed(3)})`;
         ctx.beginPath();
-        ctx.arc(gx, galaxyY, TUNE.GALAXY_RADIUS * 1.8, 0, Math.PI * 2);
+        ctx.arc(gx, galaxyY, mv.glowRadius, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = pal.accent;
+        ctx.fillStyle = `hsla(${mv.hue}, 80%, ${mv.coreLightness.toFixed(1)}%, ${mv.coreAlpha.toFixed(3)})`;
         ctx.beginPath();
-        ctx.arc(gx, galaxyY, TUNE.GALAXY_RADIUS, 0, Math.PI * 2);
+        ctx.arc(gx, galaxyY, mv.coreRadius, 0, Math.PI * 2);
         ctx.fill();
+
+        hitRadius = mv.glowRadius + 6;
       } else {
-        ctx.strokeStyle = unlocked ? `hsla(${pal.hue}, 70%, 55%, 0.6)` : `hsla(${pal.hue}, 40%, 40%, 0.15)`;
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = unlocked ? `hsla(${pal.hue}, 60%, 55%, 0.3)` : `hsla(${pal.hue}, 30%, 40%, 0.06)`;
+        ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.arc(gx, galaxyY, TUNE.GALAXY_RADIUS, 0, Math.PI * 2);
         ctx.stroke();
@@ -1360,18 +1389,27 @@
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(gx, galaxyY, TUNE.GALAXY_RADIUS + 5, 0, Math.PI * 2);
+        ctx.arc(gx, galaxyY, (lit ? galaxyMapVisual(i).glowRadius : TUNE.GALAXY_RADIUS) + 5, 0, Math.PI * 2);
         ctx.stroke();
       }
 
-      galaxyBounds.push({ x: gx, y: galaxyY, r: TUNE.GALAXY_RADIUS + 6, index: i, selectable });
+      galaxyBounds.push({ x: gx, y: galaxyY, r: hitRadius, index: i, selectable });
+    }
+
+    if (selectedGalaxy !== null) {
+      const spal = galaxyPalette(selectedGalaxy);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText(NAMES.galaxies[selectedGalaxy].toUpperCase(), canvas.width / 2, galaxyY + 88);
+      ctx.font = '13px sans-serif';
+      ctx.fillText(spal.star + ' · ' + spal.element, canvas.width / 2, galaxyY + 106);
     }
 
     const descendActive = selectedGalaxy !== null;
     const descendW = 160;
     const descendH = 44;
     const descendX = canvas.width / 2 - descendW / 2;
-    const descendY = galaxyY + 60;
+    const descendY = galaxyY + 138;
 
     ctx.fillStyle = descendActive ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.08)';
     ctx.fillRect(descendX, descendY, descendW, descendH);
@@ -1389,7 +1427,7 @@
     const btnW = 120;
     const btnH = 36;
     const btnGap = 16;
-    const btnY = descendY + descendH + 30;
+    const btnY = descendY + descendH + 26;
     const exportX = canvas.width / 2 - btnW - btnGap / 2;
     const importX = canvas.width / 2 + btnGap / 2;
 
