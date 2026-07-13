@@ -544,10 +544,18 @@
     draftOptions = [];
     cardBounds = [];
     for (const k of Object.keys(upgradeLevels)) upgradeLevels[k] = 0;
-    selectedGalaxy = 0;
+    startWave(1);
+  }
+
+  // The ONLY way state becomes STATE.MAP. camZ (mapScroll) and the selected
+  // galaxy always reset to the edge here — no code anywhere else may set
+  // mapScroll from save state, deepest held, or the previously selected galaxy.
+  function openMap() {
+    state = STATE.MAP;
     mapScroll = 0;
     mapScrollVelocity = 0;
-    startWave(1);
+    selectedGalaxy = 0;
+    console.log('camZ', mapScroll, 'MAX_Z', mapMaxZ());
   }
 
   function handleMapTap(x, y) {
@@ -602,7 +610,7 @@
     if (shopBackBounds &&
         x >= shopBackBounds.x && x <= shopBackBounds.x + shopBackBounds.w &&
         y >= shopBackBounds.y && y <= shopBackBounds.y + shopBackBounds.h) {
-      state = STATE.MAP;
+      openMap();
       return;
     }
     for (const btn of shopButtons) {
@@ -629,7 +637,7 @@
     }
     if (state === STATE.DEAD || state === STATE.VICTORY) {
       restart();
-      state = STATE.MAP;
+      openMap();
       return;
     }
     if (state === STATE.LEAP) {
@@ -1800,6 +1808,7 @@
     requestAnimationFrame(loop);
   }
 
+  openMap();
   requestAnimationFrame(loop);
 
   function setupDebugPanel() {
