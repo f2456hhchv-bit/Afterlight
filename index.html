@@ -69,7 +69,14 @@
     HULL_HP_BONUS: 20,
     MULTISHOT_SPREAD: 0.09, // radians between adjacent bullets in a volley
     XP_BAR_HEIGHT: 5,
-    GALAXY_RADIUS: 14
+    GALAXY_RADIUS: 14,
+    RUN_LENGTH: 180,
+    BOSS_HP: 1200,
+    BOSS_SPEED: 75,
+    BOSS_DPS: 30,
+    BOSS_RADIUS: 30,
+    SPAWN_INTERVAL_MIN: 0.4,   // spawn interval reached at RUN_LENGTH (spawn rate ramp)
+    ENEMY_HP_SCALE_MAX: 3      // enemy HP multiplier reached at RUN_LENGTH (HP ramp)
   };
 
   const SAVE_KEY = 'afterlight.save.v1';
@@ -119,23 +126,37 @@
   player.x = canvas.width / 2;
   player.y = canvas.height / 2;
 
-  const STATE = { MAP: 'map', RUN: 'run', DEAD: 'dead' };
+  const STATE = { MAP: 'map', RUN: 'run', DEAD: 'dead', VICTORY: 'victory' };
   let state = STATE.MAP;
 
-  function spawnEnemy() {
+  function spawnEnemy(t) {
     const pad = 40;
     const edge = Math.floor(Math.random() * 4);
     const speed = TUNE.ENEMY_SPEED * (0.9 + Math.random() * 0.2);   // +/-10%
     const turn = TUNE.ENEMY_TURN * (0.85 + Math.random() * 0.3);
-    const hp = TUNE.ENEMY_MAX_HP;
+    const hpScale = 1 + (TUNE.ENEMY_HP_SCALE_MAX - 1) * t;
+    const hp = TUNE.ENEMY_MAX_HP * hpScale;
     if (edge === 0) return { x: Math.random() * canvas.width, y: -pad, vx: 0, vy: 0, angle: 0, speed, turn, hp };
     if (edge === 1) return { x: canvas.width + pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0, speed, turn, hp };
     if (edge === 2) return { x: Math.random() * canvas.width, y: canvas.height + pad, vx: 0, vy: 0, angle: 0, speed, turn, hp };
     return { x: -pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0, speed, turn, hp };
   }
 
+  function spawnBoss() {
+    const pad = 60;
+    const edge = Math.floor(Math.random() * 4);
+    let x, y;
+    if (edge === 0) { x = Math.random() * canvas.width; y = -pad; }
+    else if (edge === 1) { x = canvas.width + pad; y = Math.random() * canvas.height; }
+    else if (edge === 2) { x = Math.random() * canvas.width; y = canvas.height + pad; }
+    else { x = -pad; y = Math.random() * canvas.height; }
+    return { x, y, vx: 0, vy: 0, angle: 0, hp: TUNE.BOSS_HP, maxHp: TUNE.BOSS_HP, flashUntil: 0 };
+  }
+
   const enemies = [];
   let spawnTimer = 0;
+  let runTime = 0;
+  let boss = null;
 
   const bullets = [];
   let fireTimer = 0;
@@ -211,6 +232,8 @@
     player.hp = TUNE.PLAYER_MAX_HP;
     enemies.length = 0;
     spawnTimer = 0;
+    runTime = 0;
+    boss = null;
     trail.length = 0;
     bullets.length = 0;
     fireTimer = 0;
@@ -252,7 +275,7 @@
       }
       return;
     }
-    if (state === STATE.DEAD) {
+    if (state === STATE.DEAD || state === STATE.VICTORY) {
       restart();
       state = STATE.MAP;
       return;
@@ -430,10 +453,20 @@
   }
 
   function updateEnemies(dt) {
-    spawnTimer += dt;
-    if (spawnTimer >= TUNE.SPAWN_INTERVAL && enemies.length < TUNE.MAX_ENEMIES) {
-      spawnTimer = 0;
-      enemies.push(spawnEnemy());
+    runTime += dt;
+
+    if (!boss) {
+      if (runTime >= TUNE.RUN_LENGTH) {
+        boss = spawnBoss();
+      } else {
+        const t = Math.min(runTime / TUNE.RUN_LENGTH, 1);
+        const spawnInterval = TUNE.SPAWN_INTERVAL - (TUNE.SPAWN_INTERVAL - TUNE.SPAWN_INTERVAL_MIN) * t;
+        spawnTimer += dt;
+        if (spawnTimer >= spawnInterval && enemies.length < TUNE.MAX_ENEMIES) {
+          spawnTimer = 0;
+          enemies.push(spawnEnemy(t));
+        }
+      }
     }
 
     const grid = buildGrid();
@@ -505,6 +538,44 @@
     }
   }
 
+  function updateBoss(dt) {
+    if (!boss) return;
+
+    const dx = player.x - boss.x;
+    const dy = player.y - boss.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 0.001) {
+      boss.vx = (dx / dist) * TUNE.BOSS_SPEED;
+      boss.vy = (dy / dist) * TUNE.BOSS_SPEED;
+      boss.angle = Math.atan2(dy, dx);
+    }
+
+    boss.x += boss.vx * dt;
+    boss.y += boss.vy * dt;
+
+    const touchDist = TUNE.PLAYER_RADIUS + TUNE.BOSS_RADIUS;
+    const pdx = boss.x - player.x;
+    const pdy = boss.y - player.y;
+    const pdist = Math.hypot(pdx, pdy);
+    if (pdist < touchDist) {
+      if (pdist > 0.001) {
+        boss.x = player.x + (pdx / pdist) * touchDist;
+        boss.y = player.y + (pdy / pdist) * touchDist;
+      } else {
+        boss.x = player.x + touchDist;
+        boss.y = player.y;
+      }
+
+      player.hp -= TUNE.BOSS_DPS * dt;
+      if (player.hp <= 0) {
+        player.hp = 0;
+        state = STATE.DEAD;
+        bankedMotes += runMotes;
+        saveBank();
+      }
+    }
+  }
+
   function nearestEnemy() {
     let nearest = null;
     let nearestDist = Infinity;
@@ -513,6 +584,13 @@
       if (dist < nearestDist) {
         nearestDist = dist;
         nearest = enemy;
+      }
+    }
+    if (boss) {
+      const dist = Math.hypot(boss.x - player.x, boss.y - player.y);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = boss;
       }
     }
     return nearest;
@@ -720,6 +798,15 @@
           }
         }
       }
+      if (boss && !boss.dead && !bullet.hit.has(boss)) {
+        if (segmentHitsCircle(px, py, nx, ny, boss.x, boss.y, TUNE.BULLET_RADIUS + TUNE.BOSS_RADIUS)) {
+          const dist = Math.hypot(boss.x - px, boss.y - py);
+          if (dist < closestDist) {
+            closestDist = dist;
+            closest = boss;
+          }
+        }
+      }
 
       bullet.x = nx;
       bullet.y = ny;
@@ -754,7 +841,14 @@
 
           if (navigator.vibrate) navigator.vibrate(10);
 
-          motes.push({ x: closest.x, y: closest.y, speed: 0 });
+          if (closest === boss) {
+            galaxies[currentGalaxy] = 1;
+            bankedMotes += runMotes;
+            saveBank();
+            state = STATE.VICTORY;
+          } else {
+            motes.push({ x: closest.x, y: closest.y, speed: 0 });
+          }
         }
       } else if (nx < 0 || nx > canvas.width || ny < 0 || ny > canvas.height) {
         bullet.dead = true;
@@ -780,6 +874,10 @@
     }
     if (state === STATE.DEAD) {
       drawDead();
+      return;
+    }
+    if (state === STATE.VICTORY) {
+      drawVictory();
       return;
     }
     drawRun();
@@ -810,6 +908,22 @@
       ctx.moveTo(13, 0);
       ctx.lineTo(-10, 8);
       ctx.lineTo(-10, -8);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    if (boss) {
+      ctx.save();
+      ctx.translate(boss.x, boss.y);
+      ctx.rotate(boss.angle);
+
+      ctx.fillStyle = currentTime < boss.flashUntil ? '#fff' : '#800';
+      ctx.beginPath();
+      ctx.moveTo(TUNE.BOSS_RADIUS * 1.3, 0);
+      ctx.lineTo(-TUNE.BOSS_RADIUS, TUNE.BOSS_RADIUS * 0.85);
+      ctx.lineTo(-TUNE.BOSS_RADIUS, -TUNE.BOSS_RADIUS * 0.85);
       ctx.closePath();
       ctx.fill();
 
@@ -891,6 +1005,15 @@
     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
     ctx.fillRect(0, 0, canvas.width * Math.min(1, xp / xpNeed), TUNE.XP_BAR_HEIGHT);
 
+    if (boss) {
+      const bossBarY = TUNE.XP_BAR_HEIGHT;
+      const bossBarHeight = 8;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.fillRect(0, bossBarY, canvas.width, bossBarHeight);
+      ctx.fillStyle = '#c0f';
+      ctx.fillRect(0, bossBarY, canvas.width * (boss.hp / boss.maxHp), bossBarHeight);
+    }
+
     if (paused) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -938,6 +1061,17 @@
     ctx.font = '16px sans-serif';
     ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 + 32);
     ctx.fillText('Tap to restart', canvas.width / 2, canvas.height / 2 + 60);
+  }
+
+  function drawVictory() {
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 32px sans-serif';
+    ctx.fillText('GALAXY HELD', canvas.width / 2, canvas.height / 2);
+
+    ctx.font = '16px sans-serif';
+    ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 + 32);
+    ctx.fillText('Tap to continue', canvas.width / 2, canvas.height / 2 + 60);
   }
 
   function drawMap() {
@@ -1048,6 +1182,7 @@
     if (state === STATE.RUN && !paused) {
       update(dt);
       updateEnemies(dt);
+      updateBoss(dt);
       updateBullets(dt);
       updateParticles(dt);
       updateMotes(dt);
