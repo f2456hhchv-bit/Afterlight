@@ -765,9 +765,23 @@
       panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
     }
 
-    window.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 3) togglePanel();
-    });
+    const toggleBtn = document.createElement('button');
+    toggleBtn.textContent = '•••';
+    toggleBtn.style.cssText = `
+      position: fixed;
+      top: 8px;
+      right: 8px;
+      width: 36px;
+      height: 36px;
+      border: none;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.3);
+      color: #fff;
+      font: 16px sans-serif;
+      z-index: 10000;
+    `;
+    toggleBtn.addEventListener('click', togglePanel);
+    document.body.appendChild(toggleBtn);
 
     window.addEventListener('keydown', (e) => {
       if (e.key === '~' || e.code === 'Backquote') togglePanel();
