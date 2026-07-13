@@ -46,6 +46,7 @@
   const BULLET_DAMAGE = 10;
   const ENEMY_MAX_HP = 10;
   const BULLET_RADIUS = 4;
+  const TARGET_DROP_RANGE = 420;   // px — drop target beyond this
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -88,6 +89,7 @@
 
   const bullets = [];
   let fireTimer = 0;
+  let currentTarget = null;
 
   const keys = { up: false, down: false, left: false, right: false };
 
@@ -130,6 +132,7 @@
     trail.length = 0;
     bullets.length = 0;
     fireTimer = 0;
+    currentTarget = null;
     gameOver = false;
   }
 
@@ -390,6 +393,17 @@
     return nearest;
   }
 
+  function acquireTarget() {
+    if (currentTarget && !currentTarget.dead) {
+      const dist = Math.hypot(currentTarget.x - player.x, currentTarget.y - player.y);
+      if (dist <= TARGET_DROP_RANGE) {
+        return currentTarget;
+      }
+    }
+    currentTarget = nearestEnemy();
+    return currentTarget;
+  }
+
   function segmentHitsCircle(px, py, nx, ny, cx, cy, r) {
     const dx = nx - px, dy = ny - py;
     const fx = px - cx, fy = py - cy;
@@ -405,7 +419,7 @@
   function updateBullets(dt) {
     fireTimer += dt;
     if (fireTimer >= FIRE_RATE) {
-      const target = nearestEnemy();
+      const target = acquireTarget();
       if (target) {
         fireTimer = 0;
 
