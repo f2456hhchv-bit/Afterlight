@@ -513,59 +513,100 @@
     return result;
   }
 
+  // Keku's lines, in trigger order. Indices 0 and 1 are NOT addressed to the
+  // player -- he doesn't know they exist yet, so no attribution is shown for
+  // them (drawDead/drawVictory render these unlabelled, like an overheard
+  // fragment). Index 2 is the turn: the first line that speaks TO the player,
+  // and every line from there on is attributed and direct. Each shows once
+  // ever, tracked in kekuSeen and persisted in the save (defaultKekuSeen/
+  // readKekuSeen below), not per-run.
+  const KEKU_LINES = [
+    "One light came back on tonight. That hasn't happened in longer than I can say.",
+    "The dark doesn't forgive an empty hand. It has already come back for what was lost.",
+    "...Oh. You're real. I didn't think anything out here could still move.",
+    "I'm diverting everything I have toward you now. I don't know what you are, and I don't like that.",
+    "I've stopped watching the edges. I'm waiting for you, at the centre, where I've always been.",
+    'Ten lights held, and I am still exactly where I have always been -- unreachable. Come and see, if you can.'
+  ];
+
+  function defaultKekuSeen() {
+    return [false, false, false, false, false, false];
+  }
+
+  function readKekuSeen(obj) {
+    const ds = defaultKekuSeen();
+    if (!Array.isArray(obj) || obj.length !== ds.length) return ds;
+    return ds.map((_, i) => obj[i] === true);
+  }
+
   function loadSave() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
       if (raw) {
         const obj = JSON.parse(raw);
-        if (obj && obj.v === 5 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+        if (obj && obj.v === 6 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 5,
+            v: 6,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
             deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
             names: readNames(obj.names),
-            shop: readShop(obj.shop)
+            shop: readShop(obj.shop),
+            kekuSeen: readKekuSeen(obj.kekuSeen)
+          };
+        }
+        if (obj && obj.v === 5 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+          return {
+            v: 6,
+            motes: obj.motes,
+            galaxies: obj.galaxies,
+            lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
+            deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
+            names: readNames(obj.names),
+            shop: readShop(obj.shop),
+            kekuSeen: defaultKekuSeen()
           };
         }
         if (obj && obj.v === 4 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 5,
+            v: 6,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
             deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
             names: readNames(obj.names),
-            shop: defaultShop()
+            shop: defaultShop(),
+            kekuSeen: defaultKekuSeen()
           };
         }
         if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 5,
+            v: 6,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
             deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
             names: defaultNames(),
-            shop: defaultShop()
+            shop: defaultShop(),
+            kekuSeen: defaultKekuSeen()
           };
         }
         if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
-          return { v: 5, motes: obj.motes, galaxies: obj.galaxies, lastPlayed: Date.now(), deepestHeld: obj.galaxies.filter((g) => g === 1).length, names: defaultNames(), shop: defaultShop() };
+          return { v: 6, motes: obj.motes, galaxies: obj.galaxies, lastPlayed: Date.now(), deepestHeld: obj.galaxies.filter((g) => g === 1).length, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen() };
         }
         if (obj && obj.v === 1 && typeof obj.motes === 'number') {
-          return { v: 5, motes: obj.motes, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop() };
+          return { v: 6, motes: obj.motes, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen() };
         }
       }
     } catch (e) {}
-    return { v: 5, motes: 0, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop() };
+    return { v: 6, motes: 0, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen() };
   }
 
   function saveBank() {
     lastPlayed = Date.now();
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 5, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 6, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop, kekuSeen: kekuSeen }));
     } catch (e) {}
   }
 
@@ -733,8 +774,22 @@
   let deepestHeld = initialSave.deepestHeld;
   let NAMES = initialSave.names;
   let shop = initialSave.shop;
+  let kekuSeen = initialSave.kekuSeen;
   let decayedGalaxyIndex = -1;
   let deathCause = null;
+  let deathKekuLine = null;
+  let victoryKekuLine = null;
+  let kekuMessageActive = false;
+  let kekuMessageText = '';
+
+  // First-time-ever check for a Keku line (0-5, matching KEKU_LINES). Marks
+  // it seen and persists immediately so a refresh mid-message can't re-show it.
+  function kekuLineFirstTime(index) {
+    if (kekuSeen[index]) return false;
+    kekuSeen[index] = true;
+    saveBank();
+    return true;
+  }
 
   if (Date.now() - lastPlayed > TUNE.DECAY_DAYS * 24 * 60 * 60 * 1000) {
     for (let i = galaxies.length - 1; i >= 0; i--) {
@@ -852,6 +907,9 @@
     paused = false;
     draftOptions = [];
     cardBounds = [];
+    deathKekuLine = null;
+    victoryKekuLine = null;
+    kekuMessageActive = false;
     for (const k of Object.keys(upgradeLevels)) upgradeLevels[k] = 0;
     startWave(1);
   }
@@ -887,6 +945,17 @@
       currentGalaxy = selectedGalaxy;
       state = STATE.RUN;
       startDrone();
+      // Keku notices at galaxy 4 (index 3), grows concerned at galaxy 7
+      // (index 6), and is waiting by galaxy 10 (index 9) -- each only the
+      // first time that galaxy is ever entered.
+      let kekuLineIndex = -1;
+      if (currentGalaxy === 3) kekuLineIndex = 2;
+      else if (currentGalaxy === 6) kekuLineIndex = 3;
+      else if (currentGalaxy === 9) kekuLineIndex = 4;
+      if (kekuLineIndex >= 0 && kekuLineFirstTime(kekuLineIndex)) {
+        kekuMessageActive = true;
+        kekuMessageText = KEKU_LINES[kekuLineIndex];
+      }
       return;
     }
     // Ported from the reference's tapSelect: closest projected galaxy within its
@@ -954,6 +1023,10 @@
 
   function pointerDown(x, y) {
     unlockAudio();
+    if (kekuMessageActive) {
+      kekuMessageActive = false;
+      return;
+    }
     if (state === STATE.MAP) {
       mapDragging = true;
       mapDragStartX = x;
@@ -1218,10 +1291,12 @@
 
   function killPlayer(cause) {
     player.hp = 0;
-    if (galaxies[currentGalaxy] === 1) {
+    const lostAHeldGalaxy = galaxies[currentGalaxy] === 1;
+    if (lostAHeldGalaxy) {
       galaxies[currentGalaxy] = 0;
     }
     deathCause = cause;
+    deathKekuLine = (lostAHeldGalaxy && kekuLineFirstTime(1)) ? KEKU_LINES[1] : null;
     state = STATE.DEAD;
     stopDrone();
     bankedMotes += Math.round(runMotes);
@@ -1478,7 +1553,7 @@
   }
 
   function exportSave() {
-    const text = JSON.stringify({ v: 5, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop });
+    const text = JSON.stringify({ v: 6, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop, kekuSeen: kekuSeen });
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text)
         .then(() => { saveMessage = 'Copied to clipboard'; saveMessageUntil = currentTime + 2000; })
@@ -1491,12 +1566,22 @@
     if (!text) return;
     try {
       const obj = JSON.parse(text);
-      if (obj && obj.v === 5 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+      if (obj && obj.v === 6 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
         bankedMotes = obj.motes;
         galaxies = obj.galaxies.slice();
         deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
         NAMES = readNames(obj.names);
         shop = readShop(obj.shop);
+        kekuSeen = readKekuSeen(obj.kekuSeen);
+        saveBank();
+        saveMessage = 'Import successful';
+      } else if (obj && obj.v === 5 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+        bankedMotes = obj.motes;
+        galaxies = obj.galaxies.slice();
+        deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
+        NAMES = readNames(obj.names);
+        shop = readShop(obj.shop);
+        kekuSeen = defaultKekuSeen();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 4 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -1505,6 +1590,7 @@
         deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
         NAMES = readNames(obj.names);
         shop = defaultShop();
+        kekuSeen = defaultKekuSeen();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -1513,6 +1599,7 @@
         deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
         NAMES = defaultNames();
         shop = defaultShop();
+        kekuSeen = defaultKekuSeen();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -1521,6 +1608,7 @@
         deepestHeld = galaxies.filter((g) => g === 1).length;
         NAMES = defaultNames();
         shop = defaultShop();
+        kekuSeen = defaultKekuSeen();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 1 && typeof obj.motes === 'number') {
@@ -1529,6 +1617,7 @@
         deepestHeld = 0;
         NAMES = defaultNames();
         shop = defaultShop();
+        kekuSeen = defaultKekuSeen();
         saveBank();
         saveMessage = 'Import successful';
       } else {
@@ -1694,6 +1783,13 @@
             galaxies[currentGalaxy] = 1;
             const heldCount = galaxies.filter((g) => g === 1).length;
             if (heldCount > deepestHeld) deepestHeld = heldCount;
+            if (kekuLineFirstTime(0)) {
+              victoryKekuLine = { text: KEKU_LINES[0], attributed: false };
+            } else if (heldCount === 10 && kekuLineFirstTime(5)) {
+              victoryKekuLine = { text: KEKU_LINES[5], attributed: true };
+            } else {
+              victoryKekuLine = null;
+            }
             bankedMotes += Math.round(runMotes);
             saveBank();
             leapFrom = currentGalaxy;
@@ -2016,7 +2112,66 @@
       }
     }
 
+    if (kekuMessageActive) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.92)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.fillText('KEKU', canvas.width / 2, canvas.height / 2 - 30);
+
+      ctx.fillStyle = '#fff';
+      ctx.font = '17px sans-serif';
+      const maxW = Math.min(420, canvas.width - 60);
+      const lines = wrapTextLines('"' + kekuMessageText + '"', maxW);
+      let ly = canvas.height / 2;
+      for (const line of lines) {
+        ctx.fillText(line, canvas.width / 2, ly);
+        ly += 26;
+      }
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.font = '12px sans-serif';
+      ctx.fillText('Tap to continue', canvas.width / 2, ly + 20);
+      ctx.textAlign = 'left';
+    }
+
     ctx.restore();
+  }
+
+  function wrapTextLines(text, maxWidth) {
+    const words = text.split(' ');
+    const lines = [];
+    let current = '';
+    for (const word of words) {
+      const test = current ? current + ' ' + word : word;
+      if (current && ctx.measureText(test).width > maxWidth) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = test;
+      }
+    }
+    if (current) lines.push(current);
+    return lines;
+  }
+
+  // Keku overheard, not spoken to the player -- unlabelled, dim, quoted, as
+  // if it drifted in from somewhere else. Distinct from the direct, attributed
+  // treatment his lines get everywhere else once he notices the player.
+  function drawOverheardLine(text, startY) {
+    ctx.textAlign = 'center';
+    ctx.font = 'italic 13px sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    const maxW = Math.min(360, canvas.width - 60);
+    const lines = wrapTextLines('"' + text + '"', maxW);
+    let ly = startY;
+    for (const line of lines) {
+      ctx.fillText(line, canvas.width / 2, ly);
+      ly += 18;
+    }
+    ctx.fillStyle = '#fff';
   }
 
   function drawDead() {
@@ -2030,6 +2185,10 @@
     ctx.fillText('SLAIN BY ' + killer.toUpperCase(), canvas.width / 2, canvas.height / 2 + 26);
     ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 + 50);
     ctx.fillText('Tap to restart', canvas.width / 2, canvas.height / 2 + 74);
+
+    if (deathKekuLine) {
+      drawOverheardLine(deathKekuLine, canvas.height / 2 + 108);
+    }
   }
 
   function drawVictory() {
@@ -2041,6 +2200,26 @@
     ctx.font = '16px sans-serif';
     ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 + 32);
     ctx.fillText('Tap to continue', canvas.width / 2, canvas.height / 2 + 60);
+
+    if (victoryKekuLine && !victoryKekuLine.attributed) {
+      drawOverheardLine(victoryKekuLine.text, canvas.height / 2 + 94);
+    } else if (victoryKekuLine && victoryKekuLine.attributed) {
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.fillText('KEKU', canvas.width / 2, canvas.height / 2 + 94);
+
+      ctx.font = '14px sans-serif';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      const maxW = Math.min(360, canvas.width - 60);
+      const lines = wrapTextLines('"' + victoryKekuLine.text + '"', maxW);
+      let ly = canvas.height / 2 + 114;
+      for (const line of lines) {
+        ctx.fillText(line, canvas.width / 2, ly);
+        ly += 18;
+      }
+      ctx.fillStyle = '#fff';
+    }
   }
 
   function drawShop() {
@@ -2341,7 +2520,7 @@
     lastTime = timestamp;
     currentTime = timestamp;
 
-    if (state === STATE.RUN && !paused && !debugPaused) {
+    if (state === STATE.RUN && !paused && !debugPaused && !kekuMessageActive) {
       update(dt);
       updateWave(dt);
       updateEnemies(dt);
