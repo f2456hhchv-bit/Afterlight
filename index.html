@@ -47,6 +47,12 @@
   const ENEMY_MAX_HP = 10;
   const BULLET_RADIUS = 4;
   const TARGET_DROP_RANGE = 420;   // px — drop target beyond this
+  const HIT_FLASH_MS = 60;
+  const KNOCKBACK = 40;
+  const SHAKE_KILL = 1.5;
+  const SHAKE_DECAY_MS = 80;
+  const DEATH_BURST_MS = 400;
+  const IMPACT_SPARK_MS = 120;
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -91,6 +97,9 @@
   let fireTimer = 0;
   let currentTarget = null;
 
+  const particles = [];
+  let shakeStrength = 0;
+
   const keys = { up: false, down: false, left: false, right: false };
 
   window.addEventListener('keydown', (e) => {
@@ -133,6 +142,8 @@
     bullets.length = 0;
     fireTimer = 0;
     currentTarget = null;
+    particles.length = 0;
+    shakeStrength = 0;
     gameOver = false;
   }
 
@@ -416,6 +427,20 @@
     return (cxp * cxp + cyp * cyp) <= r * r;
   }
 
+  function spawnParticle(x, y, vx, vy, life, color, size) {
+    particles.push({ x, y, vx, vy, born: currentTime, life, color, size });
+  }
+
+  function updateParticles(dt) {
+    for (const p of particles) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    }
+    for (let i = particles.length - 1; i >= 0; i--) {
+      if (currentTime - particles[i].born >= particles[i].life) particles.splice(i, 1);
+    }
+  }
+
   function updateBullets(dt) {
     fireTimer += dt;
     if (fireTimer >= FIRE_RATE) {
@@ -488,8 +513,29 @@
 
       if (closest) {
         closest.hp -= BULLET_DAMAGE;
+        closest.flashUntil = currentTime + HIT_FLASH_MS;
+
+        const blen = Math.hypot(bullet.vx, bullet.vy) || 1;
+        closest.x += (bullet.vx / blen) * KNOCKBACK;
+        closest.y += (bullet.vy / blen) * KNOCKBACK;
+
+        spawnParticle(nx, ny, 0, 0, IMPACT_SPARK_MS, '255,255,255', 3);
+
         bullet.dead = true;
-        if (closest.hp <= 0) closest.dead = true;
+
+        if (closest.hp <= 0) {
+          closest.dead = true;
+          shakeStrength = SHAKE_KILL;
+
+          const count = 6 + Math.floor(Math.random() * 3);
+          for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const burstSpeed = 60 + Math.random() * 80;
+            spawnParticle(closest.x, closest.y, Math.cos(angle) * burstSpeed, Math.sin(angle) * burstSpeed, DEATH_BURST_MS, '255,0,0', 2.5);
+          }
+
+          if (navigator.vibrate) navigator.vibrate(10);
+        }
       } else if (nx < 0 || nx > canvas.width || ny < 0 || ny > canvas.height) {
         bullet.dead = true;
       }
@@ -505,6 +551,11 @@
   }
 
   function draw() {
+    const shakeX = (Math.random() * 2 - 1) * shakeStrength;
+    const shakeY = (Math.random() * 2 - 1) * shakeStrength;
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -522,7 +573,7 @@
       ctx.translate(enemy.x, enemy.y);
       ctx.rotate(enemy.angle);
 
-      ctx.fillStyle = '#f00';
+      ctx.fillStyle = currentTime < enemy.flashUntil ? '#fff' : '#f00';
       ctx.beginPath();
       ctx.moveTo(13, 0);
       ctx.lineTo(-10, 8);
@@ -537,6 +588,14 @@
     for (const bullet of bullets) {
       ctx.beginPath();
       ctx.arc(bullet.x, bullet.y, BULLET_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    for (const p of particles) {
+      const alpha = Math.max(0, 1 - (currentTime - p.born) / p.life);
+      ctx.fillStyle = `rgba(${p.color}, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -594,6 +653,8 @@
       ctx.font = '16px sans-serif';
       ctx.fillText('Tap to restart', canvas.width / 2, canvas.height / 2 + 36);
     }
+
+    ctx.restore();
   }
 
   let lastTime = null;
@@ -609,6 +670,10 @@
       update(dt);
       updateEnemies(dt);
       updateBullets(dt);
+      updateParticles(dt);
+      if (shakeStrength > 0) {
+        shakeStrength = Math.max(0, shakeStrength - (SHAKE_KILL / (SHAKE_DECAY_MS / 1000)) * dt);
+      }
     }
     draw();
     requestAnimationFrame(loop);
