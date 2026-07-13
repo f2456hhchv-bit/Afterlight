@@ -34,7 +34,6 @@
     ENEMY_SPEED: 110,
     ENEMY_TURN: 0.045,     // LOW. The enemy commits to a heading and
                            // overshoots when the player cuts across it.
-    SPAWN_INTERVAL: 1.2,   // seconds between spawns
     MAX_ENEMIES: 85,
     SEPARATION_RADIUS: 28, // px — how close before they push apart
     CHASE_WEIGHT: 1.0,
@@ -70,13 +69,18 @@
     MULTISHOT_SPREAD: 0.09, // radians between adjacent bullets in a volley
     XP_BAR_HEIGHT: 5,
     GALAXY_RADIUS: 14,
-    RUN_LENGTH: 180,
     BOSS_HP: 1200,
     BOSS_SPEED: 75,
     BOSS_DPS: 30,
     BOSS_RADIUS: 30,
-    SPAWN_INTERVAL_MIN: 0.4,   // spawn interval reached at RUN_LENGTH (spawn rate ramp)
-    ENEMY_HP_SCALE_MAX: 3      // enemy HP multiplier reached at RUN_LENGTH (HP ramp)
+    WAVES_PER_GALAXY: 10,
+    BREATHER: 4,             // seconds of no spawns between waves
+    WAVE_COUNT_BASE: 12,     // enemy count = WAVE_COUNT_BASE + n * WAVE_COUNT_PER_WAVE
+    WAVE_COUNT_PER_WAVE: 8,
+    WAVE_HP_GROWTH_PER_WAVE: 0.35,  // enemy HP = ENEMY_MAX_HP * (1 + n * this)
+    WAVE_SPEED_PER_WAVE: 4,         // enemy speed = ENEMY_SPEED + n * this
+    WAVE_SPAWN_DURATION: 30,        // seconds a wave's arrivals are paced across
+    WAVE_SPAWN_FRACTION: 0.6        // fraction of WAVE_SPAWN_DURATION the budget arrives over
   };
 
   const SAVE_KEY = 'afterlight.save.v1';
@@ -129,13 +133,13 @@
   const STATE = { MAP: 'map', RUN: 'run', DEAD: 'dead', VICTORY: 'victory' };
   let state = STATE.MAP;
 
-  function spawnEnemy(t) {
+  function spawnEnemy(n) {
     const pad = 40;
     const edge = Math.floor(Math.random() * 4);
-    const speed = TUNE.ENEMY_SPEED * (0.9 + Math.random() * 0.2);   // +/-10%
+    const baseSpeed = TUNE.ENEMY_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE;
+    const speed = baseSpeed * (0.9 + Math.random() * 0.2);   // +/-10%
     const turn = TUNE.ENEMY_TURN * (0.85 + Math.random() * 0.3);
-    const hpScale = 1 + (TUNE.ENEMY_HP_SCALE_MAX - 1) * t;
-    const hp = TUNE.ENEMY_MAX_HP * hpScale;
+    const hp = Math.floor(TUNE.ENEMY_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE));
     if (edge === 0) return { x: Math.random() * canvas.width, y: -pad, vx: 0, vy: 0, angle: 0, speed, turn, hp };
     if (edge === 1) return { x: canvas.width + pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0, speed, turn, hp };
     if (edge === 2) return { x: Math.random() * canvas.width, y: canvas.height + pad, vx: 0, vy: 0, angle: 0, speed, turn, hp };
@@ -155,8 +159,61 @@
 
   const enemies = [];
   let spawnTimer = 0;
-  let runTime = 0;
   let boss = null;
+
+  let wave = 1;
+  let waveBudget = 0;
+  let waveSpawned = 0;
+  let waveKilled = 0;
+  let waveSpawnInterval = 0;
+  let inBreather = false;
+  let breatherTimer = 0;
+
+  function startWave(n) {
+    wave = n;
+    inBreather = false;
+    breatherTimer = 0;
+    spawnTimer = 0;
+    if (n >= TUNE.WAVES_PER_GALAXY) {
+      waveBudget = 0;
+      waveSpawned = 0;
+      waveKilled = 0;
+      boss = spawnBoss();
+    } else {
+      boss = null;
+      waveBudget = TUNE.WAVE_COUNT_BASE + n * TUNE.WAVE_COUNT_PER_WAVE;
+      waveSpawned = 0;
+      waveKilled = 0;
+      const spawnWindow = TUNE.WAVE_SPAWN_DURATION * TUNE.WAVE_SPAWN_FRACTION;
+      waveSpawnInterval = spawnWindow / waveBudget;
+    }
+  }
+
+  function updateWave(dt) {
+    if (inBreather) {
+      breatherTimer -= dt;
+      if (breatherTimer <= 0) {
+        startWave(wave + 1);
+      }
+      return;
+    }
+
+    if (wave >= TUNE.WAVES_PER_GALAXY) return;   // boss wave: no trash spawning
+
+    spawnTimer += dt;
+    if (spawnTimer >= waveSpawnInterval && waveSpawned < waveBudget && enemies.length < TUNE.MAX_ENEMIES) {
+      spawnTimer = 0;
+      enemies.push(spawnEnemy(wave));
+      waveSpawned++;
+    }
+
+    if (waveKilled >= waveBudget && enemies.length === 0) {
+      inBreather = true;
+      breatherTimer = TUNE.BREATHER;
+    }
+  }
+
+  startWave(1);
 
   const bullets = [];
   let fireTimer = 0;
@@ -231,9 +288,6 @@
     player.maxHp = TUNE.PLAYER_MAX_HP;
     player.hp = TUNE.PLAYER_MAX_HP;
     enemies.length = 0;
-    spawnTimer = 0;
-    runTime = 0;
-    boss = null;
     trail.length = 0;
     bullets.length = 0;
     fireTimer = 0;
@@ -249,6 +303,7 @@
     cardBounds = [];
     for (const k of Object.keys(upgradeLevels)) upgradeLevels[k] = 0;
     selectedGalaxy = null;
+    startWave(1);
   }
 
   function pointerDown(x, y) {
@@ -453,22 +508,6 @@
   }
 
   function updateEnemies(dt) {
-    runTime += dt;
-
-    if (!boss) {
-      if (runTime >= TUNE.RUN_LENGTH) {
-        boss = spawnBoss();
-      } else {
-        const t = Math.min(runTime / TUNE.RUN_LENGTH, 1);
-        const spawnInterval = TUNE.SPAWN_INTERVAL - (TUNE.SPAWN_INTERVAL - TUNE.SPAWN_INTERVAL_MIN) * t;
-        spawnTimer += dt;
-        if (spawnTimer >= spawnInterval && enemies.length < TUNE.MAX_ENEMIES) {
-          spawnTimer = 0;
-          enemies.push(spawnEnemy(t));
-        }
-      }
-    }
-
     const grid = buildGrid();
 
     for (const enemy of enemies) {
@@ -848,6 +887,7 @@
             state = STATE.VICTORY;
           } else {
             motes.push({ x: closest.x, y: closest.y, speed: 0 });
+            waveKilled++;
           }
         }
       } else if (nx < 0 || nx > canvas.width || ny < 0 || ny > canvas.height) {
@@ -998,6 +1038,15 @@
 
     ctx.fillStyle = '#f00';
     ctx.fillRect(barX, barY, barWidth * (player.hp / player.maxHp), barHeight);
+
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('WAVE ' + wave + ' / ' + TUNE.WAVES_PER_GALAXY, barX, barY + barHeight + 20);
+    if (wave < TUNE.WAVES_PER_GALAXY) {
+      const remaining = Math.max(0, waveBudget - waveKilled);
+      ctx.fillText('ENEMIES: ' + remaining, barX, barY + barHeight + 38);
+    }
 
     const xpNeed = TUNE.XP_BASE + level * TUNE.XP_GROWTH;
     ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
@@ -1181,6 +1230,7 @@
 
     if (state === STATE.RUN && !paused) {
       update(dt);
+      updateWave(dt);
       updateEnemies(dt);
       updateBoss(dt);
       updateBullets(dt);
