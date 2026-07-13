@@ -80,30 +80,43 @@
     WAVE_HP_GROWTH_PER_WAVE: 0.35,  // enemy HP = ENEMY_MAX_HP * (1 + n * this)
     WAVE_SPEED_PER_WAVE: 4,         // enemy speed = ENEMY_SPEED + n * this
     WAVE_SPAWN_DURATION: 30,        // seconds a wave's arrivals are paced across
-    WAVE_SPAWN_FRACTION: 0.6        // fraction of WAVE_SPAWN_DURATION the budget arrives over
+    WAVE_SPAWN_FRACTION: 0.6,       // fraction of WAVE_SPAWN_DURATION the budget arrives over
+    DECAY_DAYS: 7                   // days of absence before the deepest held galaxy reverts to dark
   };
 
   const SAVE_KEY = 'afterlight.save.v1';
+
+  const GALAXY_NAMES = ['EDGE', 'CINDER REACH', 'HOLLOW DRIFT', 'ASHFALL VOID', 'PALE MARCH', 'EMBER RIFT', 'QUIET EXPANSE', 'DUSK HAVEN', 'LAST LIGHT', 'CENTRE'];
 
   function loadSave() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
       if (raw) {
         const obj = JSON.parse(raw);
+        if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+          return {
+            v: 3,
+            motes: obj.motes,
+            galaxies: obj.galaxies,
+            lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
+            deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length
+          };
+        }
         if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
-          return obj;
+          return { v: 3, motes: obj.motes, galaxies: obj.galaxies, lastPlayed: Date.now(), deepestHeld: obj.galaxies.filter((g) => g === 1).length };
         }
         if (obj && obj.v === 1 && typeof obj.motes === 'number') {
-          return { v: 2, motes: obj.motes, galaxies: new Array(10).fill(0) };
+          return { v: 3, motes: obj.motes, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0 };
         }
       }
     } catch (e) {}
-    return { v: 2, motes: 0, galaxies: new Array(10).fill(0) };
+    return { v: 3, motes: 0, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0 };
   }
 
   function saveBank() {
+    lastPlayed = Date.now();
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 2, motes: bankedMotes, galaxies: galaxies }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 3, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld }));
     } catch (e) {}
   }
 
@@ -226,6 +239,21 @@
   const initialSave = loadSave();
   let bankedMotes = initialSave.motes;
   let galaxies = initialSave.galaxies;
+  let lastPlayed = initialSave.lastPlayed;
+  let deepestHeld = initialSave.deepestHeld;
+  let decayedGalaxyIndex = -1;
+
+  if (Date.now() - lastPlayed > TUNE.DECAY_DAYS * 24 * 60 * 60 * 1000) {
+    for (let i = galaxies.length - 1; i >= 0; i--) {
+      if (galaxies[i] === 1) {
+        galaxies[i] = 0;
+        decayedGalaxyIndex = i;
+        break;
+      }
+    }
+  }
+  saveBank();
+
   let runMotes = 0;
   let selectedGalaxy = null;
   let currentGalaxy = null;
@@ -507,6 +535,16 @@
     return { x: sepX, y: sepY };
   }
 
+  function killPlayer() {
+    player.hp = 0;
+    if (galaxies[currentGalaxy] === 1) {
+      galaxies[currentGalaxy] = 0;
+    }
+    state = STATE.DEAD;
+    bankedMotes += runMotes;
+    saveBank();
+  }
+
   function updateEnemies(dt) {
     const grid = buildGrid();
 
@@ -564,10 +602,7 @@
 
         player.hp -= TUNE.CONTACT_DPS * dt;
         if (player.hp <= 0) {
-          player.hp = 0;
-          state = STATE.DEAD;
-          bankedMotes += runMotes;
-          saveBank();
+          killPlayer();
         }
       }
 
@@ -607,10 +642,7 @@
 
       player.hp -= TUNE.BOSS_DPS * dt;
       if (player.hp <= 0) {
-        player.hp = 0;
-        state = STATE.DEAD;
-        bankedMotes += runMotes;
-        saveBank();
+        killPlayer();
       }
     }
   }
@@ -704,7 +736,7 @@
   }
 
   function exportSave() {
-    const text = JSON.stringify({ v: 2, motes: bankedMotes, galaxies: galaxies });
+    const text = JSON.stringify({ v: 3, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld });
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text)
         .then(() => { saveMessage = 'Copied to clipboard'; saveMessageUntil = currentTime + 2000; })
@@ -717,14 +749,22 @@
     if (!text) return;
     try {
       const obj = JSON.parse(text);
-      if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+      if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
         bankedMotes = obj.motes;
         galaxies = obj.galaxies.slice();
+        deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
+        saveBank();
+        saveMessage = 'Import successful';
+      } else if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+        bankedMotes = obj.motes;
+        galaxies = obj.galaxies.slice();
+        deepestHeld = galaxies.filter((g) => g === 1).length;
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 1 && typeof obj.motes === 'number') {
         bankedMotes = obj.motes;
         galaxies = new Array(10).fill(0);
+        deepestHeld = 0;
         saveBank();
         saveMessage = 'Import successful';
       } else {
@@ -882,6 +922,8 @@
 
           if (closest === boss) {
             galaxies[currentGalaxy] = 1;
+            const heldCount = galaxies.filter((g) => g === 1).length;
+            if (heldCount > deepestHeld) deepestHeld = heldCount;
             bankedMotes += runMotes;
             saveBank();
             state = STATE.VICTORY;
@@ -1131,6 +1173,18 @@
 
     ctx.font = '16px sans-serif';
     ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 - 104);
+
+    const heldCount = galaxies.filter((g) => g === 1).length;
+    ctx.font = '14px sans-serif';
+    ctx.fillText('HELD: ' + heldCount + ' / ' + galaxies.length, canvas.width / 2, canvas.height / 2 - 80);
+    ctx.fillText('DEEPEST HELD: ' + deepestHeld, canvas.width / 2, canvas.height / 2 - 62);
+
+    if (decayedGalaxyIndex !== -1) {
+      ctx.fillStyle = 'rgba(255, 140, 140, 0.9)';
+      ctx.font = '12px sans-serif';
+      ctx.fillText('THE DARK TOOK ' + GALAXY_NAMES[decayedGalaxyIndex] + ' WHILE YOU WERE AWAY.', canvas.width / 2, canvas.height / 2 - 44);
+      ctx.fillStyle = '#fff';
+    }
 
     const galaxyY = canvas.height / 2 - 40;
     const galaxyMargin = 40;
