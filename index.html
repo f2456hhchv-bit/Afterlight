@@ -48,6 +48,22 @@
     BULLET_DAMAGE: 10,
     ENEMY_MAX_HP: 10,
     BULLET_RADIUS: 4,
+    HOLLOW_SPAWN_WEIGHT: 3,  // relative odds among currently-unlocked types — cheap, numerous
+    LANCE_SPAWN_WEIGHT: 1,
+    ANCHOR_SPAWN_WEIGHT: 1,
+    LANCE_RADIUS: 6,
+    LANCE_MAX_HP: 4,
+    LANCE_AIM_TURN: 0.18,        // fast — snaps to face the player while lining up
+    LANCE_AIM_ALIGN: 0.05,       // radians of heading error allowed before it commits to the charge
+    LANCE_CHARGE_SPEED: 300,
+    LANCE_CHARGE_ACCEL: 900,     // px/s^2 while committed — hits top speed fast, then flies dead straight
+    LANCE_CHARGE_DURATION: 0.9,  // seconds locked on the charge heading, long enough to overshoot badly
+    LANCE_PAUSE_DURATION: 0.7,   // seconds standing still after a charge before it lines up again
+    ANCHOR_RADIUS: 22,
+    ANCHOR_MAX_HP: 90,
+    ANCHOR_SPEED: 45,
+    ANCHOR_TURN: 0.03,
+    ANCHOR_PUSH_MULT: 2.5,       // how much harder an Anchor shoves OTHER enemies away vs. a same-size neighbor
     TARGET_DROP_RANGE: 420, // px — drop target beyond this
     HIT_FLASH_MS: 9.6768,
     KNOCKBACK: 9.78112,
@@ -333,17 +349,52 @@
   let leapStartTime = 0;
   let state = STATE.MAP;
 
+  // Which types are unlocked this wave, weighted so Hollow stays the cheap,
+  // numerous baseline even once Lance/Anchor join in.
+  function pickEnemyType(n) {
+    const pool = [['hollow', TUNE.HOLLOW_SPAWN_WEIGHT]];
+    if (n >= 4) pool.push(['lance', TUNE.LANCE_SPAWN_WEIGHT]);
+    if (n >= 7) pool.push(['anchor', TUNE.ANCHOR_SPAWN_WEIGHT]);
+    const total = pool.reduce((sum, [, w]) => sum + w, 0);
+    let r = Math.random() * total;
+    for (const [type, w] of pool) {
+      if (r < w) return type;
+      r -= w;
+    }
+    return 'hollow';
+  }
+
   function spawnEnemy(n) {
     const pad = 40;
     const edge = Math.floor(Math.random() * 4);
+    let x, y;
+    if (edge === 0) { x = Math.random() * canvas.width; y = -pad; }
+    else if (edge === 1) { x = canvas.width + pad; y = Math.random() * canvas.height; }
+    else if (edge === 2) { x = Math.random() * canvas.width; y = canvas.height + pad; }
+    else { x = -pad; y = Math.random() * canvas.height; }
+
+    const type = pickEnemyType(n);
+
+    if (type === 'lance') {
+      const hp = Math.floor(TUNE.LANCE_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE));
+      const chargeSpeed = TUNE.LANCE_CHARGE_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE;
+      return {
+        type, x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.LANCE_RADIUS,
+        chargeSpeed, phase: 'aim', phaseTimer: 0, chargeAngle: 0
+      };
+    }
+
+    if (type === 'anchor') {
+      const hp = Math.floor(TUNE.ANCHOR_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE));
+      const speed = (TUNE.ANCHOR_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE) * (0.9 + Math.random() * 0.2);
+      return { type, x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.ANCHOR_RADIUS, speed, turn: TUNE.ANCHOR_TURN };
+    }
+
     const baseSpeed = TUNE.ENEMY_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE;
     const speed = baseSpeed * (0.9 + Math.random() * 0.2);   // +/-10%
     const turn = TUNE.ENEMY_TURN * (0.85 + Math.random() * 0.3);
     const hp = Math.floor(TUNE.ENEMY_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE));
-    if (edge === 0) return { x: Math.random() * canvas.width, y: -pad, vx: 0, vy: 0, angle: 0, speed, turn, hp };
-    if (edge === 1) return { x: canvas.width + pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0, speed, turn, hp };
-    if (edge === 2) return { x: Math.random() * canvas.width, y: canvas.height + pad, vx: 0, vy: 0, angle: 0, speed, turn, hp };
-    return { x: -pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0, speed, turn, hp };
+    return { type: 'hollow', x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.ENEMY_RADIUS, speed, turn };
   }
 
   function spawnBoss() {
@@ -857,12 +908,17 @@
         if (!bucket) continue;
         for (const other of bucket) {
           if (other === enemy) continue;
+          // Anchor is a wall that pushes the swarm aside rather than being
+          // pushed — it doesn't feel Hollows shoving back at all, and every
+          // other type feels an Anchor's push harder than a same-size neighbor's.
+          if (enemy.type === 'anchor' && other.type === 'hollow') continue;
           const ox = enemy.x - other.x;
           const oy = enemy.y - other.y;
           const odist = Math.hypot(ox, oy);
           if (odist > 0.001 && odist < TUNE.SEPARATION_RADIUS) {
             const strength = 1 - odist / TUNE.SEPARATION_RADIUS;
-            const weight = strength * strength;   // squared falloff — soft near the edge
+            let weight = strength * strength;   // squared falloff — soft near the edge
+            if (other.type === 'anchor') weight *= TUNE.ANCHOR_PUSH_MULT;
             sepX += (ox / odist) * weight;
             sepY += (oy / odist) * weight;
           }
@@ -889,49 +945,109 @@
     saveBank();
   }
 
+  // Shared by Hollow and Anchor — chase the player, blended with separation
+  // from the rest of the swarm. Only enemy.speed/turn/radius differ per type.
+  function updateChaseEnemy(enemy, dt, grid) {
+    const dx = player.x - enemy.x;
+    const dy = player.y - enemy.y;
+    const dlen = Math.hypot(dx, dy);
+
+    let chaseX = 0;
+    let chaseY = 0;
+    if (dlen > 0.001) {
+      chaseX = dx / dlen;
+      chaseY = dy / dlen;
+    }
+
+    const sep = separationFor(enemy, grid);
+
+    const touchDist = TUNE.PLAYER_RADIUS + enemy.radius;
+    const chaseWeight = dlen <= touchDist ? TUNE.CHASE_WEIGHT_TOUCHING : TUNE.CHASE_WEIGHT;
+
+    let desiredX = chaseX * chaseWeight + sep.x * TUNE.SEPARATION_WEIGHT;
+    let desiredY = chaseY * chaseWeight + sep.y * TUNE.SEPARATION_WEIGHT;
+    const desiredLen = Math.hypot(desiredX, desiredY);
+    if (desiredLen > 0.001) {
+      desiredX /= desiredLen;
+      desiredY /= desiredLen;
+    }
+
+    const targetX = desiredX * enemy.speed;
+    const targetY = desiredY * enemy.speed;
+
+    enemy.vx += (targetX - enemy.vx) * enemy.turn;
+    enemy.vy += (targetY - enemy.vy) * enemy.turn;
+
+    const speed = Math.hypot(enemy.vx, enemy.vy);
+    if (speed > enemy.speed) {
+      enemy.vx = (enemy.vx / speed) * enemy.speed;
+      enemy.vy = (enemy.vy / speed) * enemy.speed;
+    }
+
+    enemy.x += enemy.vx * dt;
+    enemy.y += enemy.vy * dt;
+
+    if (speed > 0.001) {
+      enemy.angle = Math.atan2(enemy.vy, enemy.vx);
+    }
+  }
+
+  // Lance: aim (fast turn, tracks the player) -> charge (heading locks, hard
+  // accelerate, cannot turn, sails past on a miss) -> pause (stops dead) -> aim.
+  function updateLanceEnemy(enemy, dt) {
+    enemy.phaseTimer -= dt;
+
+    if (enemy.phase === 'aim') {
+      const dx = player.x - enemy.x;
+      const dy = player.y - enemy.y;
+      const targetAngle = Math.atan2(dy, dx);
+      let diff = ((targetAngle - enemy.angle + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+      enemy.angle += diff * TUNE.LANCE_AIM_TURN;
+      enemy.vx += (0 - enemy.vx) * 0.2;
+      enemy.vy += (0 - enemy.vy) * 0.2;
+      if (Math.abs(diff) < TUNE.LANCE_AIM_ALIGN) {
+        enemy.phase = 'charge';
+        enemy.phaseTimer = TUNE.LANCE_CHARGE_DURATION;
+        enemy.chargeAngle = enemy.angle;   // locked — nothing below reads player position again
+      }
+    } else if (enemy.phase === 'charge') {
+      const speed = Math.hypot(enemy.vx, enemy.vy);
+      if (speed < enemy.chargeSpeed) {
+        enemy.vx += Math.cos(enemy.chargeAngle) * TUNE.LANCE_CHARGE_ACCEL * dt;
+        enemy.vy += Math.sin(enemy.chargeAngle) * TUNE.LANCE_CHARGE_ACCEL * dt;
+      }
+      const newSpeed = Math.hypot(enemy.vx, enemy.vy);
+      if (newSpeed > enemy.chargeSpeed) {
+        enemy.vx = (enemy.vx / newSpeed) * enemy.chargeSpeed;
+        enemy.vy = (enemy.vy / newSpeed) * enemy.chargeSpeed;
+      }
+      if (enemy.phaseTimer <= 0) {
+        enemy.phase = 'pause';
+        enemy.phaseTimer = TUNE.LANCE_PAUSE_DURATION;
+      }
+    } else {   // pause
+      enemy.vx += (0 - enemy.vx) * 0.15;
+      enemy.vy += (0 - enemy.vy) * 0.15;
+      if (enemy.phaseTimer <= 0) {
+        enemy.phase = 'aim';
+      }
+    }
+
+    enemy.x += enemy.vx * dt;
+    enemy.y += enemy.vy * dt;
+  }
+
   function updateEnemies(dt) {
     const grid = buildGrid();
 
     for (const enemy of enemies) {
-      const dx = player.x - enemy.x;
-      const dy = player.y - enemy.y;
-      const dlen = Math.hypot(dx, dy);
-
-      let chaseX = 0;
-      let chaseY = 0;
-      if (dlen > 0.001) {
-        chaseX = dx / dlen;
-        chaseY = dy / dlen;
+      if (enemy.type === 'lance') {
+        updateLanceEnemy(enemy, dt);
+      } else {
+        updateChaseEnemy(enemy, dt, grid);
       }
 
-      const sep = separationFor(enemy, grid);
-
-      const touchDist = TUNE.PLAYER_RADIUS + TUNE.ENEMY_RADIUS;
-      const chaseWeight = dlen <= touchDist ? TUNE.CHASE_WEIGHT_TOUCHING : TUNE.CHASE_WEIGHT;
-
-      let desiredX = chaseX * chaseWeight + sep.x * TUNE.SEPARATION_WEIGHT;
-      let desiredY = chaseY * chaseWeight + sep.y * TUNE.SEPARATION_WEIGHT;
-      const desiredLen = Math.hypot(desiredX, desiredY);
-      if (desiredLen > 0.001) {
-        desiredX /= desiredLen;
-        desiredY /= desiredLen;
-      }
-
-      const targetX = desiredX * enemy.speed;
-      const targetY = desiredY * enemy.speed;
-
-      enemy.vx += (targetX - enemy.vx) * enemy.turn;
-      enemy.vy += (targetY - enemy.vy) * enemy.turn;
-
-      const speed = Math.hypot(enemy.vx, enemy.vy);
-      if (speed > enemy.speed) {
-        enemy.vx = (enemy.vx / speed) * enemy.speed;
-        enemy.vy = (enemy.vy / speed) * enemy.speed;
-      }
-
-      enemy.x += enemy.vx * dt;
-      enemy.y += enemy.vy * dt;
-
+      const touchDist = TUNE.PLAYER_RADIUS + enemy.radius;
       const pdx = enemy.x - player.x;
       const pdy = enemy.y - player.y;
       const pdist = Math.hypot(pdx, pdy);
@@ -948,10 +1064,6 @@
         if (player.hp <= 0) {
           killPlayer('enemy');
         }
-      }
-
-      if (speed > 0.001) {
-        enemy.angle = Math.atan2(enemy.vy, enemy.vx);
       }
     }
   }
@@ -1235,7 +1347,7 @@
       for (const enemy of enemies) {
         if (enemy.dead) continue;
         if (bullet.hit.has(enemy)) continue;
-        if (segmentHitsCircle(px, py, nx, ny, enemy.x, enemy.y, TUNE.BULLET_RADIUS + TUNE.ENEMY_RADIUS)) {
+        if (segmentHitsCircle(px, py, nx, ny, enemy.x, enemy.y, TUNE.BULLET_RADIUS + enemy.radius)) {
           const dist = Math.hypot(enemy.x - px, enemy.y - py);
           if (dist < closestDist) {
             closestDist = dist;
@@ -1382,9 +1494,24 @@
 
       ctx.fillStyle = currentTime < enemy.flashUntil ? '#fff' : pal.accent;
       ctx.beginPath();
-      ctx.moveTo(13, 0);
-      ctx.lineTo(-10, 8);
-      ctx.lineTo(-10, -8);
+      if (enemy.type === 'lance') {
+        // narrow dart/needle — thin and elongated, reads as fast even standing still
+        ctx.moveTo(TUNE.LANCE_RADIUS * 2.5, 0);
+        ctx.lineTo(-TUNE.LANCE_RADIUS * 1.3, TUNE.LANCE_RADIUS * 0.4);
+        ctx.lineTo(-TUNE.LANCE_RADIUS * 1.3, -TUNE.LANCE_RADIUS * 0.4);
+      } else if (enemy.type === 'anchor') {
+        // heavy hexagon — no sharp nose, reads as a wall
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI / 3) * i;
+          const hx = Math.cos(a) * TUNE.ANCHOR_RADIUS;
+          const hy = Math.sin(a) * TUNE.ANCHOR_RADIUS;
+          if (i === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
+        }
+      } else {
+        ctx.moveTo(13, 0);
+        ctx.lineTo(-10, 8);
+        ctx.lineTo(-10, -8);
+      }
       ctx.closePath();
       ctx.fill();
 
