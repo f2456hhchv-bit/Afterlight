@@ -84,13 +84,13 @@
     CORRIDOR_FOV: 520,              // perspective strength: scale = CORRIDOR_FOV / z. Renamed from the
                                      // old MAP_FOV so a stale localStorage TUNE override from the earlier
                                      // FOV/(FOV+depth) corridor (same key, different formula) can't reapply.
-    MAP_SPACING: 460,               // world-units between galaxies along the corridor's depth axis
-    MAP_NEAR_Z: 260,                // camera sits this far in front of galaxy 1
-    MAP_CORE: 46,                   // base core radius at scale 1
-    MAP_GLOW: 190,                  // base glow radius at scale 1
-    MAP_DRIFT: 90,                  // lateral wander so the corridor reads as space, not a pipe
-    MAP_SCROLL_SPEED: 1.9,
-    MAP_FRICTION: 0.92,
+    CORRIDOR_SPACING: 460,               // world-units between galaxies along the corridor's depth axis
+    CORRIDOR_NEAR_Z: 260,                // camera sits this far in front of galaxy 1
+    CORRIDOR_CORE: 46,                   // base core radius at scale 1
+    CORRIDOR_GLOW: 190,                  // base glow radius at scale 1
+    CORRIDOR_DRIFT: 90,                  // lateral wander so the corridor reads as space, not a pipe
+    CORRIDOR_SCROLL_SPEED: 1.9,
+    CORRIDOR_FRICTION: 0.92,
     COST_BASE: 40,                  // shop upgrade level n costs COST_BASE * (n ^ COST_POWER)
     COST_POWER: 1.6,
     SHOP_MAX_LEVEL: 5,
@@ -167,22 +167,22 @@
   // colour, drift and the mouth's white treatment must not be reinterpreted. ---
 
   function mapMaxZ() {
-    return TUNE.MAP_SPACING * (GALAXY_DATA.length - 1);
+    return TUNE.CORRIDOR_SPACING * (GALAXY_DATA.length - 1);
   }
 
   // Each galaxy gets a fixed lateral offset so the corridor drifts like space,
   // not a straight pipe. Scaled by perspective scale in projectGalaxy.
   function mapOffset(index) {
     return {
-      x: Math.sin(index * 1.31) * TUNE.MAP_DRIFT,
-      y: Math.cos(index * 0.87) * TUNE.MAP_DRIFT * 0.55
+      x: Math.sin(index * 1.31) * TUNE.CORRIDOR_DRIFT,
+      y: Math.cos(index * 0.87) * TUNE.CORRIDOR_DRIFT * 0.55
     };
   }
 
   // scale = FOV / z. Pure 1/depth perspective — not FOV/(FOV+depth). Returns
   // null (cull) once a galaxy is behind or on top of the camera.
   function projectGalaxy(index, scroll) {
-    const z = TUNE.MAP_NEAR_Z + index * TUNE.MAP_SPACING - scroll;
+    const z = TUNE.CORRIDOR_NEAR_Z + index * TUNE.CORRIDOR_SPACING - scroll;
     if (z <= 40) return null;
     const s = TUNE.CORRIDOR_FOV / z;
     const off = mapOffset(index);
@@ -190,8 +190,8 @@
       x: canvas.width / 2 + off.x * s,
       y: canvas.height / 2 + off.y * s,
       s: s,
-      core: TUNE.MAP_CORE * s,
-      glow: TUNE.MAP_GLOW * s
+      core: TUNE.CORRIDOR_CORE * s,
+      glow: TUNE.CORRIDOR_GLOW * s
     };
   }
 
@@ -464,13 +464,14 @@
   let mapDragStartY = 0;
   let mapDragLastY = 0;
   let mapDragMoved = 0;
+  let corridorDebugLogged = false;
 
   // Per-frame friction (not dt-scaled) — matches the reference exactly, which
   // ticks its momentum once per requestAnimationFrame call, same as this loop.
   function updateMapScroll() {
     if (mapDragging) return;
     mapScroll = Math.max(0, Math.min(mapMaxZ(), mapScroll + mapScrollVelocity));
-    mapScrollVelocity *= TUNE.MAP_FRICTION;
+    mapScrollVelocity *= TUNE.CORRIDOR_FRICTION;
     if (Math.abs(mapScrollVelocity) < 0.02) mapScrollVelocity = 0;
   }
 
@@ -656,8 +657,8 @@
       const dy = y - mapDragLastY;
       mapDragLastY = y;
       mapDragMoved += Math.abs(dy);
-      mapScroll = Math.max(0, Math.min(mapMaxZ(), mapScroll - dy * TUNE.MAP_SCROLL_SPEED));
-      mapScrollVelocity = -dy * TUNE.MAP_SCROLL_SPEED;
+      mapScroll = Math.max(0, Math.min(mapMaxZ(), mapScroll - dy * TUNE.CORRIDOR_SCROLL_SPEED));
+      mapScrollVelocity = -dy * TUNE.CORRIDOR_SCROLL_SPEED;
       return;
     }
     if (!dragging) return;
@@ -1595,6 +1596,18 @@
 
   function drawMap() {
     const HEADER_HEIGHT = 142;
+
+    // TEMPORARY diagnostic — logs once so we can see what's actually running in
+    // this browser, including any TUNE overrides. Safe to remove once confirmed.
+    if (!corridorDebugLogged) {
+      corridorDebugLogged = true;
+      console.log('CORRIDOR_FOV=' + TUNE.CORRIDOR_FOV, 'CORRIDOR_NEAR_Z=' + TUNE.CORRIDOR_NEAR_Z, 'CORRIDOR_SPACING=' + TUNE.CORRIDOR_SPACING, 'mapScroll=' + mapScroll);
+      for (let i = 0; i < GALAXY_DATA.length; i++) {
+        const p = projectGalaxy(i, mapScroll);
+        const z = TUNE.CORRIDOR_NEAR_Z + i * TUNE.CORRIDOR_SPACING - mapScroll;
+        console.log('i=' + i, 'z=' + z, 'scale=' + (p ? p.s.toFixed(3) : 'CULLED'));
+      }
+    }
 
     // The void is always pure black. Any light on screen is emitted by the
     // galaxies themselves via additive glows below — never a background fill.
