@@ -188,6 +188,23 @@
     };
   }
 
+  // Galaxy 10 alone: not coloured by hue like every other galaxy. A hard white
+  // point visible from anywhere in the corridor, growing overwhelming as it nears.
+  function galaxyTenVisual(scroll) {
+    const targetWorldY = galaxyWorldY(GALAXY_DATA.length - 1);
+    const totalRange = targetWorldY - galaxyWorldY(0);
+    const distanceRemaining = Math.max(0, targetWorldY - scroll);
+    const proximity = 1 - Math.min(1, distanceRemaining / totalRange);   // 0 from galaxy 1, 1 once arrived
+    return {
+      proximity,
+      coreRadius: TUNE.GALAXY_RADIUS * (0.12 + proximity * 2.3),
+      glowRadius: TUNE.GALAXY_RADIUS * (1.0 + proximity * 6),
+      outerRadius: TUNE.GALAXY_RADIUS * (2.2 + proximity * 10),
+      glowAlpha: 0.08 + proximity * 0.42,
+      outerAlpha: 0.03 + proximity * 0.22
+    };
+  }
+
   const DEFAULT_GALAXY_NAMES = ['Edge', 'Cinder Reach', 'Hollow Drift', 'Ashfall Void', 'Pale March', 'Ember Rift', 'Quiet Expanse', 'Dusk Haven', 'Last Light', 'Centre'];
 
   function defaultNames() {
@@ -1455,8 +1472,10 @@
     ctx.rect(0, scrollTop, canvas.width, scrollBottom - scrollTop);
     ctx.clip();
 
+    const lastIndex = galaxies.length - 1;
+
     galaxyBounds = [];
-    for (let i = 0; i < galaxies.length; i++) {
+    for (let i = 0; i < lastIndex; i++) {
       const gy = viewCenterY + galaxyWorldY(i) - mapScroll;
       const lit = galaxies[i] === 1;
       const unlocked = i === 0 || galaxies[i - 1] === 1;
@@ -1501,6 +1520,43 @@
       }
 
       galaxyBounds.push({ x: gx, y: gy, r: hitRadius, index: i, selectable });
+    }
+
+    // Galaxy 10: always visible, always white, drawn last so nothing eclipses it.
+    // Its screen position clamps to the bottom of the corridor when its true
+    // position would scroll off-screen, so it's glimpsed from the very first galaxy.
+    {
+      const i = lastIndex;
+      const idealGy = viewCenterY + galaxyWorldY(i) - mapScroll;
+      const gy = Math.min(idealGy, scrollBottom - 16);
+      const unlocked = galaxies[i - 1] === 1;
+      const selectable = unlocked;
+      const tv = galaxyTenVisual(mapScroll);
+
+      ctx.fillStyle = `rgba(255, 255, 255, ${tv.outerAlpha.toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(gx, gy, tv.outerRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = `rgba(255, 255, 255, ${tv.glowAlpha.toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(gx, gy, tv.glowRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(gx, gy, tv.coreRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (selectedGalaxy === i) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(gx, gy, tv.glowRadius + 5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      galaxyBounds.push({ x: gx, y: gy, r: tv.glowRadius + 6, index: i, selectable });
     }
 
     ctx.restore();
