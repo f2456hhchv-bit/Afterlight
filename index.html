@@ -68,7 +68,6 @@
     HULL_HP_BONUS: 20,
     MULTISHOT_SPREAD: 0.09, // radians between adjacent bullets in a volley
     XP_BAR_HEIGHT: 5,
-    GALAXY_RADIUS: 14,
     BOSS_HP: 1800,
     BOSS_SPEED: 81,
     BOSS_DPS: 30,
@@ -82,7 +81,14 @@
     WAVE_SPAWN_DURATION: 20.4,      // seconds a wave's arrivals are paced across
     WAVE_SPAWN_FRACTION: 0.6,       // fraction of WAVE_SPAWN_DURATION the budget arrives over
     DECAY_DAYS: 7,                  // days of absence before the deepest held galaxy reverts to dark
-    MAP_FOV: 260,                   // field-of-view depth constant for the map corridor's perspective
+    MAP_FOV: 520,                   // perspective strength: scale = MAP_FOV / z
+    MAP_SPACING: 460,               // world-units between galaxies along the corridor's depth axis
+    MAP_NEAR_Z: 260,                // camera sits this far in front of galaxy 1
+    MAP_CORE: 46,                   // base core radius at scale 1
+    MAP_GLOW: 190,                  // base glow radius at scale 1
+    MAP_DRIFT: 90,                  // lateral wander so the corridor reads as space, not a pipe
+    MAP_SCROLL_SPEED: 1.9,
+    MAP_FRICTION: 0.92,
     COST_BASE: 40,                  // shop upgrade level n costs COST_BASE * (n ^ COST_POWER)
     COST_POWER: 1.6,
     SHOP_MAX_LEVEL: 5,
@@ -155,67 +161,40 @@
     };
   }
 
-  const GALAXY_WORLD_SPACING = 130;   // world-space depth gap between galaxies along the corridor
+  // --- Map corridor: ported 1:1 from the reference implementation. Perspective,
+  // colour, drift and the mouth's white treatment must not be reinterpreted. ---
 
-  function galaxyWorldY(index) {
-    return index * GALAXY_WORLD_SPACING;
+  function mapMaxZ() {
+    return TUNE.MAP_SPACING * (GALAXY_DATA.length - 1);
   }
 
-  // True perspective: depth increases with index (and decreases as the camera
-  // scrolls toward it), scale = FOV / (FOV + depth). Shared by every galaxy,
-  // including galaxy 10, so size is driven by ONE consistent formula.
-  function galaxyPerspective(index, scroll) {
-    const depth = TUNE.MAP_FOV + galaxyWorldY(index) - scroll;
-    return { depth, scale: TUNE.MAP_FOV / (TUNE.MAP_FOV + Math.max(1, depth)) };
-  }
-
-  // Map-node visuals. Intrinsic brightness/saturation is fixed per galaxy (galaxy 1
-  // is dim, galaxy 10 is blinding) — size alone comes from perspective scale.
-  function galaxyMapVisual(index, scroll) {
-    const brightness = index / (GALAXY_DATA.length - 1);
-    const hue = GALAXY_DATA[index].hue;
-    const persp = galaxyPerspective(index, scroll);
-    const scale = persp.scale;
+  // Each galaxy gets a fixed lateral offset so the corridor drifts like space,
+  // not a straight pipe. Scaled by perspective scale in projectGalaxy.
+  function mapOffset(index) {
     return {
-      hue,
-      depth: persp.depth,
-      coreRadius: scale * 30,
-      glowRadius: scale * 90,
-      bloomRadius: scale * 170,
-      coreLightness: 28 + brightness * 57,     // 28% dim ember -> 85% blinding
-      coreAlpha: 0.4 + brightness * 0.6,        // 0.4 -> 1.0
-      glowAlpha: 0.08 + brightness * 0.32,      // 0.08 -> 0.4
-      bloomAlpha: brightness * brightness * 0.25
+      x: Math.sin(index * 1.31) * TUNE.MAP_DRIFT,
+      y: Math.cos(index * 0.87) * TUNE.MAP_DRIFT * 0.55
     };
   }
 
-  // Galaxy 10 alone: never coloured by hue. A hard white point, always at the
-  // vanishing point, sized by the same perspective formula as every other galaxy.
-  function galaxyTenVisual(scroll) {
-    const persp = galaxyPerspective(GALAXY_DATA.length - 1, scroll);
-    const scale = persp.scale;
+  // scale = FOV / z. Pure 1/depth perspective — not FOV/(FOV+depth). Returns
+  // null (cull) once a galaxy is behind or on top of the camera.
+  function projectGalaxy(index, scroll) {
+    const z = TUNE.MAP_NEAR_Z + index * TUNE.MAP_SPACING - scroll;
+    if (z <= 40) return null;
+    const s = TUNE.MAP_FOV / z;
+    const off = mapOffset(index);
     return {
-      depth: persp.depth,
-      coreRadius: scale * 32,
-      glowRadius: scale * 100,
-      outerRadius: scale * 190,
-      coreAlpha: 1,          // always the brightest pixel on screen, even at maximum distance
-      glowAlpha: 0.55,
-      outerAlpha: 0.22
+      x: canvas.width / 2 + off.x * s,
+      y: canvas.height / 2 + off.y * s,
+      s: s,
+      core: TUNE.MAP_CORE * s,
+      glow: TUNE.MAP_GLOW * s
     };
   }
 
-  // Radial gradient light: hot at the centre, falling to fully transparent. Meant
-  // to be painted with globalCompositeOperation = 'lighter' so overlaps add.
-  function drawGlow(x, y, radius, hue, sat, lightness, alpha) {
-    if (radius < 0.5 || alpha < 0.005) return;
-    const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
-    grad.addColorStop(0, `hsla(${hue}, ${sat}%, ${lightness}%, ${alpha})`);
-    grad.addColorStop(1, `hsla(${hue}, ${sat}%, ${lightness}%, 0)`);
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fill();
+  function mapHsla(h, s, l, a) {
+    return `hsla(${h}, ${s}%, ${l}%, ${a})`;
   }
 
   const DEFAULT_GALAXY_NAMES = ['Edge', 'Cinder Reach', 'Hollow Drift', 'Ashfall Void', 'Pale March', 'Ember Rift', 'Quiet Expanse', 'Dusk Haven', 'Last Light', 'Centre'];
@@ -463,10 +442,9 @@
   saveBank();
 
   let runMotes = 0;
-  let selectedGalaxy = null;
+  let selectedGalaxy = 0;   // never null, like the reference — always a valid, unlocked focus
   let currentGalaxy = null;
   let startButtons = [];
-  let galaxyBounds = [];
   let descendBounds = null;
   let shopButtonBounds = null;
   let shopButtons = [];
@@ -474,36 +452,24 @@
   let saveMessage = '';
   let saveMessageUntil = 0;
 
-  const MAP_TAP_THRESHOLD = 10;          // px of movement below which a touch counts as a tap, not a scroll
-  const MAP_SCROLL_DECAY_PER_SEC = 0.05; // momentum velocity multiplier remaining after 1 full second
-  const MAP_SCROLL_MAX_VELOCITY = 4000;  // px/sec, clamps an unrealistically fast flick
+  const MAP_TAP_THRESHOLD = 8;   // px of movement below which a touch counts as a tap, not a scroll
 
-  const openGalaxyIndex = Math.max(0, Math.min(GALAXY_DATA.length - 1, deepestHeld - 1));
-  let mapScroll = galaxyWorldY(openGalaxyIndex);
+  // The map always opens at the edge — galaxy 1, in the dark — every time.
+  let mapScroll = 0;
   let mapScrollVelocity = 0;
   let mapDragging = false;
   let mapDragStartX = 0;
   let mapDragStartY = 0;
   let mapDragLastY = 0;
-  let mapDragLastTime = 0;
   let mapDragMoved = 0;
 
-  function clampMapScroll() {
-    const minScroll = galaxyWorldY(0);
-    const maxScroll = galaxyWorldY(GALAXY_DATA.length - 1);
-    if (mapScroll < minScroll) { mapScroll = minScroll; mapScrollVelocity = 0; }
-    if (mapScroll > maxScroll) { mapScroll = maxScroll; mapScrollVelocity = 0; }
-  }
-
-  function updateMapScroll(dt) {
+  // Per-frame friction (not dt-scaled) — matches the reference exactly, which
+  // ticks its momentum once per requestAnimationFrame call, same as this loop.
+  function updateMapScroll() {
     if (mapDragging) return;
-    if (Math.abs(mapScrollVelocity) < 2) {
-      mapScrollVelocity = 0;
-      return;
-    }
-    mapScroll += mapScrollVelocity * dt;
-    mapScrollVelocity *= Math.pow(MAP_SCROLL_DECAY_PER_SEC, dt);
-    clampMapScroll();
+    mapScroll = Math.max(0, Math.min(mapMaxZ(), mapScroll + mapScrollVelocity));
+    mapScrollVelocity *= TUNE.MAP_FRICTION;
+    if (Math.abs(mapScrollVelocity) < 0.02) mapScrollVelocity = 0;
   }
 
   const UPGRADE_DEFS = [
@@ -575,7 +541,9 @@
     draftOptions = [];
     cardBounds = [];
     for (const k of Object.keys(upgradeLevels)) upgradeLevels[k] = 0;
-    selectedGalaxy = null;
+    selectedGalaxy = 0;
+    mapScroll = 0;
+    mapScrollVelocity = 0;
     startWave(1);
   }
 
@@ -593,23 +561,28 @@
         return;
       }
     }
-    if (descendBounds && selectedGalaxy !== null &&
+    if (descendBounds &&
         x >= descendBounds.x && x <= descendBounds.x + descendBounds.w &&
         y >= descendBounds.y && y <= descendBounds.y + descendBounds.h) {
       currentGalaxy = selectedGalaxy;
       state = STATE.RUN;
       return;
     }
-    // Galaxies are concentric now (shared vanishing point); check the smallest
-    // (farthest) radius first so a precise tap on a distant point isn't always
-    // swallowed by a much larger, nearer glow surrounding it.
-    for (let gi = galaxyBounds.length - 1; gi >= 0; gi--) {
-      const gb = galaxyBounds[gi];
-      if (gb.selectable && Math.hypot(x - gb.x, y - gb.y) <= gb.r) {
-        selectedGalaxy = gb.index;
-        return;
+    // Ported from the reference's tapSelect: closest projected galaxy within its
+    // own hit radius wins. Locked galaxies are drawn but excluded here — not tappable.
+    let best = -1;
+    let bestDist = Infinity;
+    for (let i = 0; i < GALAXY_DATA.length; i++) {
+      if (!(i === 0 || galaxies[i - 1] === 1)) continue;
+      const p = projectGalaxy(i, mapScroll);
+      if (!p) continue;
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < Math.max(28, p.core * 1.4) && d < bestDist) {
+        bestDist = d;
+        best = i;
       }
     }
+    if (best >= 0) selectedGalaxy = best;
   }
 
   function buyShopUpgrade(key) {
@@ -643,7 +616,6 @@
       mapDragStartX = x;
       mapDragStartY = y;
       mapDragLastY = y;
-      mapDragLastTime = currentTime;
       mapDragMoved = 0;
       mapScrollVelocity = 0;
       return;
@@ -680,29 +652,28 @@
     if (state === STATE.MAP) {
       if (!mapDragging) return;
       const dy = y - mapDragLastY;
-      const dtMs = Math.max(1, currentTime - mapDragLastTime);
-      const instantVelocity = -(dy / dtMs) * 1000;
-      mapScrollVelocity = mapScrollVelocity * 0.7 + instantVelocity * 0.3;
-      mapScrollVelocity = Math.max(-MAP_SCROLL_MAX_VELOCITY, Math.min(MAP_SCROLL_MAX_VELOCITY, mapScrollVelocity));
-      mapScroll -= dy;
-      clampMapScroll();
-      mapDragMoved = Math.max(mapDragMoved, Math.hypot(x - mapDragStartX, y - mapDragStartY));
       mapDragLastY = y;
-      mapDragLastTime = currentTime;
+      mapDragMoved += Math.abs(dy);
+      mapScroll = Math.max(0, Math.min(mapMaxZ(), mapScroll - dy * TUNE.MAP_SCROLL_SPEED));
+      mapScrollVelocity = -dy * TUNE.MAP_SCROLL_SPEED;
       return;
     }
     if (!dragging) return;
     fingerX = x;
     fingerY = y;
   }
-  function pointerUp() {
+  function pointerUp(x, y) {
     if (state === STATE.MAP) {
       mapDragging = false;
       if (mapDragMoved < MAP_TAP_THRESHOLD) {
-        handleMapTap(mapDragStartX, mapDragStartY);
+        handleMapTap(x, y);
       }
       return;
     }
+    dragging = false;
+  }
+  function pointerCancel() {
+    mapDragging = false;
     dragging = false;
   }
 
@@ -714,8 +685,11 @@
     const t = e.changedTouches[0];
     pointerMove(t.clientX, t.clientY);
   }, { passive: true });
-  canvas.addEventListener('touchend', pointerUp);
-  canvas.addEventListener('touchcancel', pointerUp);
+  canvas.addEventListener('touchend', (e) => {
+    const t = e.changedTouches[0];
+    pointerUp(t.clientX, t.clientY);
+  }, { passive: true });
+  canvas.addEventListener('touchcancel', pointerCancel, { passive: true });
 
   canvas.addEventListener('mousedown', (e) => {
     pointerDown(e.clientX, e.clientY);
@@ -723,7 +697,9 @@
   window.addEventListener('mousemove', (e) => {
     pointerMove(e.clientX, e.clientY);
   });
-  window.addEventListener('mouseup', pointerUp);
+  window.addEventListener('mouseup', (e) => {
+    pointerUp(e.clientX, e.clientY);
+  });
 
   function getKeyVector() {
     let ix = 0, iy = 0;
@@ -1616,31 +1592,30 @@
   }
 
   function drawMap() {
-    const HEADER_HEIGHT = 140;
-    const FOOTER_HEIGHT = 160;
+    const HEADER_HEIGHT = 142;
 
-    // The void is always pure black. Any light here comes only from the
-    // galaxies' own additive glows below, never a background fill.
+    // The void is always pure black. Any light on screen is emitted by the
+    // galaxies themselves via additive glows below — never a background fill.
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
-    ctx.font = 'bold 28px sans-serif';
-    ctx.fillText('AFTERLIGHT', canvas.width / 2, 40);
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillText('AFTERLIGHT', canvas.width / 2, 28);
 
-    ctx.font = '16px sans-serif';
-    ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, 66);
+    ctx.font = '14px sans-serif';
+    ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, 50);
 
     const heldCount = galaxies.filter((g) => g === 1).length;
-    ctx.font = '14px sans-serif';
-    ctx.fillText('HELD: ' + heldCount + ' / ' + galaxies.length, canvas.width / 2, 88);
-    ctx.fillText('DEEPEST HELD: ' + deepestHeld, canvas.width / 2, 106);
+    ctx.font = '12px sans-serif';
+    ctx.fillText('HELD: ' + heldCount + ' / ' + galaxies.length, canvas.width / 2, 68);
+    ctx.fillText('DEEPEST HELD: ' + deepestHeld, canvas.width / 2, 84);
 
     if (decayedGalaxyIndex !== -1) {
       ctx.fillStyle = 'rgba(255, 140, 140, 0.9)';
-      ctx.font = '12px sans-serif';
-      ctx.fillText('THE DARK TOOK ' + NAMES.galaxies[decayedGalaxyIndex].toUpperCase() + ' WHILE YOU WERE AWAY.', canvas.width / 2, 124);
+      ctx.font = '11px sans-serif';
+      ctx.fillText('THE DARK TOOK ' + NAMES.galaxies[decayedGalaxyIndex].toUpperCase() + ' WHILE YOU WERE AWAY.', canvas.width / 2, 100);
       ctx.fillStyle = '#fff';
     }
 
@@ -1658,130 +1633,123 @@
     ctx.fillText('SHOP', shopBtnX + shopBtnW / 2, shopBtnY + shopBtnH / 2 + 4);
     shopButtonBounds = { x: shopBtnX, y: shopBtnY, w: shopBtnW, h: shopBtnH };
 
-    const scrollTop = HEADER_HEIGHT;
-    const scrollBottom = canvas.height - FOOTER_HEIGHT;
-    const viewCenterY = (scrollTop + scrollBottom) / 2;
-    const gx = canvas.width / 2;
-    const gy = viewCenterY;   // every galaxy shares one vanishing point; only scale differs
+    startButtons = [];
+    const smallBtnW = 70;
+    const smallBtnH = 24;
+    const smallBtnGap = 10;
+    const smallBtnY = 108;
+    const exportX = canvas.width / 2 - smallBtnW - smallBtnGap / 2;
+    const importX = canvas.width / 2 + smallBtnGap / 2;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.fillRect(exportX, smallBtnY, smallBtnW, smallBtnH);
+    ctx.fillRect(importX, smallBtnY, smallBtnW, smallBtnH);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.strokeRect(exportX, smallBtnY, smallBtnW, smallBtnH);
+    ctx.strokeRect(importX, smallBtnY, smallBtnW, smallBtnH);
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('Export', exportX + smallBtnW / 2, smallBtnY + smallBtnH / 2 + 4);
+    ctx.fillText('Import', importX + smallBtnW / 2, smallBtnY + smallBtnH / 2 + 4);
+    startButtons.push({ x: exportX, y: smallBtnY, w: smallBtnW, h: smallBtnH, action: 'export' });
+    startButtons.push({ x: importX, y: smallBtnY, w: smallBtnW, h: smallBtnH, action: 'import' });
+
+    if (currentTime < saveMessageUntil) {
+      ctx.font = '11px sans-serif';
+      ctx.fillText(saveMessage, canvas.width / 2, smallBtnY + smallBtnH + 16);
+    }
+
+    // ---- The corridor. Ported from the reference — do not reinterpret. ----
+    const lastIndex = GALAXY_DATA.length - 1;
 
     ctx.save();
     ctx.beginPath();
-    ctx.rect(0, scrollTop, canvas.width, scrollBottom - scrollTop);
+    ctx.rect(0, HEADER_HEIGHT, canvas.width, canvas.height - HEADER_HEIGHT);
     ctx.clip();
-    ctx.globalCompositeOperation = 'lighter';   // light adds and brightens where glows overlap
+    ctx.globalCompositeOperation = 'lighter';
 
-    const lastIndex = galaxies.length - 1;
-    let selectedScreenRadius = 0;
+    for (let i = lastIndex; i >= 0; i--) {
+      const p = projectGalaxy(i, mapScroll);
+      if (!p) continue;
 
-    galaxyBounds = [];
-    for (let i = 0; i < lastIndex; i++) {
-      const persp = galaxyPerspective(i, mapScroll);
-      if (persp.depth <= 1) continue;   // long since passed behind the camera
-
+      const data = GALAXY_DATA[i];
       const lit = galaxies[i] === 1;
-      const unlocked = i === 0 || galaxies[i - 1] === 1;
-      const selectable = unlocked;
-      const pal = galaxyPalette(i);
-      let hitRadius = TUNE.GALAXY_RADIUS * persp.scale + 6;
+      const isMouth = i === lastIndex;
+      const power = isMouth ? 1 : (lit ? 1 : 0.10);
 
-      if (lit) {
-        const mv = galaxyMapVisual(i, mapScroll);
-        drawGlow(gx, gy, mv.bloomRadius, mv.hue, 70, 60, mv.bloomAlpha);
-        drawGlow(gx, gy, mv.glowRadius, mv.hue, 75, 60, mv.glowAlpha);
-        drawGlow(gx, gy, mv.coreRadius, mv.hue, 90, mv.coreLightness, mv.coreAlpha);
-        hitRadius = mv.glowRadius + 6;
-      } else {
-        ctx.strokeStyle = unlocked ? `hsla(${pal.hue}, 60%, 55%, 0.3)` : `hsla(${pal.hue}, 30%, 40%, 0.06)`;
-        ctx.lineWidth = 1;
+      if (p.glow > 0.5) {
+        const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.glow);
+        if (isMouth) {
+          grd.addColorStop(0, `rgba(255,255,255,${0.95 * power})`);
+          grd.addColorStop(0.12, `rgba(240,244,255,${0.55 * power})`);
+          grd.addColorStop(0.45, `rgba(180,200,255,${0.14 * power})`);
+          grd.addColorStop(1, 'rgba(120,150,255,0)');
+        } else {
+          grd.addColorStop(0, mapHsla(data.hue, 90, 72, 0.85 * power));
+          grd.addColorStop(0.18, mapHsla(data.hue, 88, 58, 0.42 * power));
+          grd.addColorStop(0.55, mapHsla(data.hue, 85, 45, 0.10 * power));
+          grd.addColorStop(1, mapHsla(data.hue, 80, 40, 0));
+        }
+        ctx.fillStyle = grd;
         ctx.beginPath();
-        ctx.arc(gx, gy, TUNE.GALAXY_RADIUS * persp.scale, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.arc(p.x, p.y, p.glow, 0, Math.PI * 2);
+        ctx.fill();
       }
 
-      if (selectedGalaxy === i) selectedScreenRadius = hitRadius - 6;
+      if (p.core > 0.4) {
+        ctx.fillStyle = isMouth ? 'rgba(255,255,255,1)' : (lit ? mapHsla(data.hue, 95, 66, 1) : mapHsla(data.hue, 60, 30, 0.5));
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.core * (isMouth ? 0.55 : (lit ? 0.42 : 0.30)), 0, Math.PI * 2);
+        ctx.fill();
+      }
 
-      galaxyBounds.push({ x: gx, y: gy, r: hitRadius, index: i, selectable });
-    }
-
-    // Galaxy 10: never coloured by hue, always the brightest pixel on screen.
-    // Drawn last, on the same perspective formula, so nothing eclipses it.
-    {
-      const i = lastIndex;
-      const unlocked = galaxies[i - 1] === 1;
-      const selectable = unlocked;
-      const tv = galaxyTenVisual(mapScroll);
-
-      drawGlow(gx, gy, tv.outerRadius, 0, 0, 100, tv.outerAlpha);
-      drawGlow(gx, gy, tv.glowRadius, 0, 0, 100, tv.glowAlpha);
-      drawGlow(gx, gy, tv.coreRadius, 0, 0, 100, tv.coreAlpha);
-
-      if (selectedGalaxy === i) selectedScreenRadius = tv.glowRadius;
-
-      galaxyBounds.push({ x: gx, y: gy, r: tv.glowRadius + 6, index: i, selectable });
+      if (!lit && !isMouth && p.core > 3) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = mapHsla(data.hue, 55, 40, 0.55);
+        ctx.lineWidth = Math.max(1, 1.6 * p.s);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.core * 0.55, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalCompositeOperation = 'lighter';
+      }
     }
 
     ctx.restore();
 
-    if (selectedGalaxy !== null) {
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-      ctx.lineWidth = 2;
+    const sp = projectGalaxy(selectedGalaxy, mapScroll);
+    if (sp && sp.core > 2) {
+      const pulse = 1 + Math.sin(currentTime / 380) * 0.06;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(gx, gy, selectedScreenRadius + 6, 0, Math.PI * 2);
+      ctx.arc(sp.x, sp.y, sp.core * 0.95 * pulse, 0, Math.PI * 2);
       ctx.stroke();
-
-      const spal = galaxyPalette(selectedGalaxy);
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 15px sans-serif';
-      ctx.fillText(NAMES.galaxies[selectedGalaxy].toUpperCase(), canvas.width / 2, canvas.height - 148);
-      ctx.font = '13px sans-serif';
-      ctx.fillText(spal.star + ' · ' + spal.element, canvas.width / 2, canvas.height - 130);
     }
 
-    const descendActive = selectedGalaxy !== null;
-    const descendW = 160;
-    const descendH = 44;
+    const isMouth = selectedGalaxy === lastIndex;
+    const spal = galaxyPalette(selectedGalaxy);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    ctx.font = '600 15px ui-monospace, monospace';
+    ctx.fillText(NAMES.galaxies[selectedGalaxy].toUpperCase(), canvas.width / 2, canvas.height - 92);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.fillText((isMouth ? '—' : spal.star) + '  ·  ' + (isMouth ? '—' : spal.element), canvas.width / 2, canvas.height - 72);
+
+    const descendW = 140;
+    const descendH = 34;
     const descendX = canvas.width / 2 - descendW / 2;
-    const descendY = canvas.height - 114;
+    const descendY = canvas.height - 56;
 
-    ctx.fillStyle = descendActive ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.08)';
-    ctx.fillRect(descendX, descendY, descendW, descendH);
-    ctx.strokeStyle = descendActive ? 'rgba(255, 255, 255, 0.6)' : 'rgba(255, 255, 255, 0.2)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.lineWidth = 1;
     ctx.strokeRect(descendX, descendY, descendW, descendH);
-
-    ctx.fillStyle = descendActive ? '#fff' : 'rgba(255, 255, 255, 0.4)';
-    ctx.font = 'bold 16px sans-serif';
-    const descendLabel = descendActive ? (galaxies[selectedGalaxy] === 1 ? 'HOLD' : 'TAKE') : 'DESCEND';
-    ctx.fillText(descendLabel, canvas.width / 2, descendY + descendH / 2 + 5);
+    ctx.fillStyle = '#fff';
+    ctx.font = '600 13px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(galaxies[selectedGalaxy] === 1 ? 'HOLD' : 'TAKE', canvas.width / 2, canvas.height - 34);
 
     descendBounds = { x: descendX, y: descendY, w: descendW, h: descendH };
-
-    startButtons = [];
-    const btnW = 120;
-    const btnH = 36;
-    const btnGap = 16;
-    const btnY = canvas.height - 50;
-    const exportX = canvas.width / 2 - btnW - btnGap / 2;
-    const importX = canvas.width / 2 + btnGap / 2;
-
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-    ctx.fillRect(exportX, btnY, btnW, btnH);
-    ctx.fillRect(importX, btnY, btnW, btnH);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-    ctx.strokeRect(exportX, btnY, btnW, btnH);
-    ctx.strokeRect(importX, btnY, btnW, btnH);
-
-    ctx.fillStyle = '#fff';
-    ctx.font = '13px sans-serif';
-    ctx.fillText('Export', exportX + btnW / 2, btnY + btnH / 2 + 5);
-    ctx.fillText('Import', importX + btnW / 2, btnY + btnH / 2 + 5);
-
-    startButtons.push({ x: exportX, y: btnY, w: btnW, h: btnH, action: 'export' });
-    startButtons.push({ x: importX, y: btnY, w: btnW, h: btnH, action: 'import' });
-
-    if (currentTime < saveMessageUntil) {
-      ctx.font = '13px sans-serif';
-      ctx.fillText(saveMessage, canvas.width / 2, btnY - 12);
-    }
 
     ctx.textAlign = 'left';
   }
@@ -1811,7 +1779,7 @@
       state = STATE.VICTORY;
     }
     if (state === STATE.MAP && !debugPaused) {
-      updateMapScroll(dt);
+      updateMapScroll();
     }
     draw();
     requestAnimationFrame(loop);
