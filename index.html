@@ -409,14 +409,33 @@
       if (target) {
         fireTimer = 0;
 
-        let tx = target.x;
-        let ty = target.y;
-        for (let i = 0; i < 2; i++) {
-          const dist = Math.hypot(tx - player.x, ty - player.y);
-          const time = dist / BULLET_SPEED;
-          tx = target.x + target.vx * time;
-          ty = target.y + target.vy * time;
+        const rx = target.x - player.x;
+        const ry = target.y - player.y;
+        const rvx = target.vx;
+        const rvy = target.vy;
+
+        const a = rvx * rvx + rvy * rvy - BULLET_SPEED * BULLET_SPEED;
+        const b = 2 * (rx * rvx + ry * rvy);
+        const c = rx * rx + ry * ry;
+
+        let t;
+        if (Math.abs(a) < 0.0001) {
+          t = -c / b;
+        } else {
+          const disc = b * b - 4 * a * c;
+          if (disc < 0) {
+            t = 0;
+          } else {
+            const sq = Math.sqrt(disc);
+            const t1 = (-b + sq) / (2 * a);
+            const t2 = (-b - sq) / (2 * a);
+            t = Math.min(t1 > 0 ? t1 : Infinity, t2 > 0 ? t2 : Infinity);
+            if (!isFinite(t)) t = 0;
+          }
         }
+
+        const tx = target.x + rvx * t;
+        const ty = target.y + rvy * t;
 
         const dx = tx - player.x;
         const dy = ty - player.y;
