@@ -116,7 +116,22 @@
     SHOP_CALIBRE_MULT: 1.06,         // +6% bullet damage per level
     SHOP_CADENCE_MULT: 0.96,         // -4% time between shots per level
     SHOP_REACH_MULT: 1.08,           // +8% pickup radius per level
-    SHOP_SALVAGE_MULT: 1.05          // +5% motes collected per level
+    SHOP_SALVAGE_MULT: 1.05,         // +5% motes collected per level
+    SFX_MASTER_GAIN: 0.5,            // overall mixer level — everything else is relative to this
+    SFX_FIRE_GAIN: 0.05,
+    SFX_HIT_GAIN: 0.08,
+    SFX_KILL_GAIN: 0.12,
+    SFX_MOTE_GAIN: 0.06,
+    SFX_PLAYER_HIT_GAIN: 0.18,
+    SFX_LEVELUP_GAIN: 0.22,
+    SFX_BOSS_APPEAR_GAIN: 0.25,
+    SFX_BOSS_DIE_GAIN: 0.3,
+    SFX_GALAXY_CLEAR_GAIN: 0.3,
+    SFX_DRONE_GAIN: 0.035,
+    SFX_DRONE_BASE_FREQ: 55,         // Hz, wave 1
+    SFX_DRONE_WAVE_RISE: 1.8,        // Hz added per wave number — tension without the player knowing why
+    SFX_PLAYER_HIT_COOLDOWN_MS: 220, // min gap between thuds while contact damage is continuous
+    SFX_MOTE_COMBO_RESET_MS: 420     // gap that resets the pickup pitch-climb
   };
 
   const TUNE_DEFAULTS = { ...TUNE };
@@ -150,6 +165,210 @@
         TUNE[k] = tuneOverrides[k];
       }
     }
+  }
+
+  // ---- Audio: everything below is synthesised via Web Audio API. No audio
+  // files, no assets — keeps the game single-file and zero-dependency.
+  // Browsers block audio until a user gesture, so the context is created
+  // lazily (unlockAudio, called from pointerDown) rather than at load time.
+  let audioCtx = null;
+  let masterGain = null;
+  let noiseBuffer = null;
+  let droneOsc1 = null;
+  let droneOsc2 = null;
+  let droneGain = null;
+  let moteComboCount = 0;
+  let lastMoteSoundTime = -Infinity;
+  let lastPlayerHitSoundTime = -Infinity;
+
+  function ensureAudio() {
+    if (audioCtx) return;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    audioCtx = new Ctx();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = TUNE.SFX_MASTER_GAIN;
+    masterGain.connect(audioCtx.destination);
+  }
+
+  function unlockAudio() {
+    ensureAudio();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  }
+
+  function getNoiseBuffer() {
+    if (noiseBuffer) return noiseBuffer;
+    const len = audioCtx.sampleRate * 1;
+    noiseBuffer = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    return noiseBuffer;
+  }
+
+  // A single oscillator with an attack/decay gain envelope. Every tonal SFX
+  // (blips, pops, chimes, swells) is one or more calls to this.
+  function playTone(opts) {
+    if (!audioCtx) return;
+    const duration = opts.duration;
+    const t0 = audioCtx.currentTime + (opts.delay || 0);
+    const osc = audioCtx.createOscillator();
+    osc.type = opts.type || 'sine';
+    osc.frequency.setValueAtTime(opts.freq, t0);
+    if (opts.freqEnd !== undefined) {
+      osc.frequency.exponentialRampToValueAtTime(Math.max(1, opts.freqEnd), t0 + duration);
+    }
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(opts.gain, t0 + (opts.attack || 0.002));
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    osc.connect(g);
+    g.connect(masterGain);
+    osc.start(t0);
+    osc.stop(t0 + duration + 0.05);
+  }
+
+  // A filtered burst of the shared noise buffer. Used for percussive/textured
+  // SFX (hit ticks, the low thud, the boss collapse) that a pure oscillator
+  // can't sell on its own.
+  function playNoiseBurst(opts) {
+    if (!audioCtx) return;
+    const duration = opts.duration;
+    const t0 = audioCtx.currentTime + (opts.delay || 0);
+    const src = audioCtx.createBufferSource();
+    src.buffer = getNoiseBuffer();
+    src.loop = true;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = opts.filterType || 'bandpass';
+    filter.Q.value = opts.q !== undefined ? opts.q : 1;
+    filter.frequency.setValueAtTime(opts.filterFreq, t0);
+    if (opts.filterFreqEnd !== undefined) {
+      filter.frequency.exponentialRampToValueAtTime(Math.max(1, opts.filterFreqEnd), t0 + duration);
+    }
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(opts.gain, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    src.connect(filter);
+    filter.connect(g);
+    g.connect(masterGain);
+    src.start(t0);
+    src.stop(t0 + duration + 0.05);
+  }
+
+  // Fire: very short dry click, 3x/sec by default — pitch wobbles a little
+  // each shot so it reads as a weapon, not a machine gun.
+  function sfxFire() {
+    if (!audioCtx) return;
+    const freq = 820 + (Math.random() * 2 - 1) * 70;
+    playTone({ freq, freqEnd: freq * 0.85, type: 'square', duration: 0.035, gain: TUNE.SFX_FIRE_GAIN, attack: 0.001 });
+  }
+
+  function sfxHit() {
+    playNoiseBurst({ duration: 0.035, gain: TUNE.SFX_HIT_GAIN, filterFreq: 3200, filterFreqEnd: 2200, q: 3 });
+  }
+
+  function sfxKill() {
+    playTone({ freq: 560, freqEnd: 160, type: 'triangle', duration: 0.14, gain: TUNE.SFX_KILL_GAIN, attack: 0.002 });
+  }
+
+  // Mote pickup: tiny ping, climbing in pitch on a quick combo, reset after
+  // a pause — currentTime is the shared rAF clock already used everywhere
+  // else in the file for cooldowns, not a fresh time source.
+  function sfxMotePickup() {
+    if (currentTime - lastMoteSoundTime > TUNE.SFX_MOTE_COMBO_RESET_MS) moteComboCount = 0;
+    lastMoteSoundTime = currentTime;
+    const freq = 1100 + Math.min(moteComboCount, 14) * 55;
+    moteComboCount++;
+    playTone({ freq, type: 'sine', duration: 0.05, gain: TUNE.SFX_MOTE_GAIN, attack: 0.001 });
+  }
+
+  // Player hit: low and ugly on purpose — two barely-detuned low oscillators
+  // beating against each other, plus a low noise thump. Self-throttled since
+  // contact damage fires every frame while touching; without the cooldown
+  // this would buzz instead of thud.
+  function sfxPlayerHit() {
+    if (currentTime - lastPlayerHitSoundTime < TUNE.SFX_PLAYER_HIT_COOLDOWN_MS) return;
+    lastPlayerHitSoundTime = currentTime;
+    playTone({ freq: 130, freqEnd: 55, type: 'sine', duration: 0.16, gain: TUNE.SFX_PLAYER_HIT_GAIN, attack: 0.001 });
+    playTone({ freq: 136, freqEnd: 58, type: 'sine', duration: 0.16, gain: TUNE.SFX_PLAYER_HIT_GAIN * 0.7, attack: 0.001 });
+    playNoiseBurst({ duration: 0.1, gain: TUNE.SFX_PLAYER_HIT_GAIN * 0.5, filterFreq: 220, filterFreqEnd: 120, q: 0.7, filterType: 'lowpass' });
+  }
+
+  // Level up: bright rising two-note chime, plus a quiet high shimmer on the
+  // second note. This is a reward — the loudest of the small SFX.
+  function sfxLevelUp() {
+    playTone({ freq: 523, type: 'triangle', duration: 0.14, gain: TUNE.SFX_LEVELUP_GAIN, attack: 0.005 });
+    playTone({ freq: 784, type: 'triangle', duration: 0.22, gain: TUNE.SFX_LEVELUP_GAIN, attack: 0.005, delay: 0.1 });
+    playTone({ freq: 1568, type: 'sine', duration: 0.22, gain: TUNE.SFX_LEVELUP_GAIN * 0.4, attack: 0.005, delay: 0.1 });
+  }
+
+  function sfxBossAppears() {
+    playTone({ freq: 42, freqEnd: 55, type: 'sine', duration: 1.6, gain: TUNE.SFX_BOSS_APPEAR_GAIN, attack: 0.9 });
+    playTone({ freq: 84, freqEnd: 110, type: 'sine', duration: 1.6, gain: TUNE.SFX_BOSS_APPEAR_GAIN * 0.3, attack: 0.9 });
+  }
+
+  // Boss dies: a downward-sweeping tone layered with lowpass-filtered noise
+  // whose cutoff also falls — a long collapse, not a pop.
+  function sfxBossDies() {
+    playTone({ freq: 220, freqEnd: 30, type: 'sawtooth', duration: 2.2, gain: TUNE.SFX_BOSS_DIE_GAIN * 0.5, attack: 0.01 });
+    playNoiseBurst({ duration: 2.2, gain: TUNE.SFX_BOSS_DIE_GAIN, filterFreq: 900, filterFreqEnd: 60, q: 0.8, filterType: 'lowpass' });
+  }
+
+  // Galaxy cleared: a warm rising triad, delayed slightly so it glows in
+  // over the tail of the boss collapse rather than fighting it. The best
+  // sound in the game — relief, not a fanfare.
+  function sfxGalaxyCleared() {
+    const delay = 0.5;
+    const notes = [220, 330, 440];
+    for (const n of notes) {
+      playTone({ freq: n * 0.85, freqEnd: n, type: 'sine', duration: 3, gain: TUNE.SFX_GALAXY_CLEAR_GAIN / notes.length, attack: 1.2, delay });
+    }
+  }
+
+  // Ambient drone: quiet, under the whole run, pitch creeping up with the
+  // wave number. Persistent oscillators (not one-shots) started/stopped
+  // around a run rather than played per-frame.
+  function startDrone() {
+    ensureAudio();
+    if (!audioCtx || droneOsc1) return;
+    droneGain = audioCtx.createGain();
+    droneGain.gain.value = 0;
+    droneGain.connect(masterGain);
+
+    droneOsc1 = audioCtx.createOscillator();
+    droneOsc1.type = 'sine';
+    droneOsc2 = audioCtx.createOscillator();
+    droneOsc2.type = 'sine';
+    droneOsc2.detune.value = 6;   // slight beating for texture — still a quiet drone, not a chord
+
+    droneOsc1.connect(droneGain);
+    droneOsc2.connect(droneGain);
+
+    updateDroneFrequency();
+    droneOsc1.start();
+    droneOsc2.start();
+
+    droneGain.gain.linearRampToValueAtTime(TUNE.SFX_DRONE_GAIN, audioCtx.currentTime + 1.5);
+  }
+
+  function updateDroneFrequency() {
+    if (!droneOsc1 || !audioCtx) return;
+    const freq = TUNE.SFX_DRONE_BASE_FREQ + wave * TUNE.SFX_DRONE_WAVE_RISE;
+    const t = audioCtx.currentTime;
+    droneOsc1.frequency.setTargetAtTime(freq, t, 0.8);
+    droneOsc2.frequency.setTargetAtTime(freq * 1.5, t, 0.8);
+  }
+
+  function stopDrone() {
+    if (!droneOsc1 || !audioCtx) return;
+    const t = audioCtx.currentTime;
+    droneGain.gain.cancelScheduledValues(t);
+    droneGain.gain.setValueAtTime(droneGain.gain.value, t);
+    droneGain.gain.linearRampToValueAtTime(0, t + 0.6);
+    droneOsc1.stop(t + 0.7);
+    droneOsc2.stop(t + 0.7);
+    droneOsc1 = null;
+    droneOsc2 = null;
+    droneGain = null;
   }
 
   const SAVE_KEY = 'afterlight.save.v1';
@@ -430,6 +649,7 @@
       waveSpawned = 0;
       waveKilled = 0;
       boss = spawnBoss();
+      sfxBossAppears();
     } else {
       boss = null;
       waveBudget = TUNE.WAVE_COUNT_BASE + n * TUNE.WAVE_COUNT_PER_WAVE;
@@ -438,6 +658,7 @@
       const spawnWindow = TUNE.WAVE_SPAWN_DURATION * TUNE.WAVE_SPAWN_FRACTION;
       waveSpawnInterval = spawnWindow / waveBudget;
     }
+    updateDroneFrequency();
   }
 
   function updateWave(dt) {
@@ -631,6 +852,7 @@
         y >= descendBounds.y && y <= descendBounds.y + descendBounds.h) {
       currentGalaxy = selectedGalaxy;
       state = STATE.RUN;
+      startDrone();
       return;
     }
     // Ported from the reference's tapSelect: closest projected galaxy within its
@@ -682,6 +904,7 @@
   }
 
   function pointerDown(x, y) {
+    unlockAudio();
     if (state === STATE.MAP) {
       mapDragging = true;
       mapDragStartX = x;
@@ -941,6 +1164,7 @@
     }
     deathCause = cause;
     state = STATE.DEAD;
+    stopDrone();
     bankedMotes += Math.round(runMotes);
     saveBank();
   }
@@ -1061,6 +1285,7 @@
         }
 
         player.hp -= TUNE.CONTACT_DPS * dt;
+        sfxPlayerHit();
         if (player.hp <= 0) {
           killPlayer('enemy');
         }
@@ -1097,6 +1322,7 @@
       }
 
       player.hp -= TUNE.BOSS_DPS * dt;
+      sfxPlayerHit();
       if (player.hp <= 0) {
         killPlayer('boss');
       }
@@ -1165,6 +1391,7 @@
     if (xp >= need) {
       xp -= need;
       level++;
+      sfxLevelUp();
       openDraft();
     }
   }
@@ -1267,6 +1494,7 @@
         motes.splice(i, 1);
         xp++;
         runMotes += Math.pow(TUNE.SHOP_SALVAGE_MULT, shop.salvage);
+        sfxMotePickup();
         checkLevelUp();
         continue;
       }
@@ -1333,6 +1561,7 @@
             pierceRemaining: upgradeLevels.pierce
           });
         }
+        sfxFire();
       }
     }
 
@@ -1377,6 +1606,7 @@
         closest.y += (bullet.vy / blen) * TUNE.KNOCKBACK;
 
         spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, '255,255,255', 3);
+        sfxHit();
 
         bullet.hit.add(closest);
         if (bullet.pierceRemaining > 0) {
@@ -1399,6 +1629,9 @@
           if (navigator.vibrate) navigator.vibrate(10);
 
           if (closest === boss) {
+            sfxBossDies();
+            sfxGalaxyCleared();
+            stopDrone();
             galaxies[currentGalaxy] = 1;
             const heldCount = galaxies.filter((g) => g === 1).length;
             if (heldCount > deepestHeld) deepestHeld = heldCount;
@@ -1409,6 +1642,7 @@
             leapStartTime = currentTime;
             state = STATE.LEAP;
           } else {
+            sfxKill();
             motes.push({ x: closest.x, y: closest.y, speed: 0 });
             waveKilled++;
           }
