@@ -45,7 +45,7 @@
   const BULLET_SPEED = 520;
   const BULLET_DAMAGE = 10;
   const ENEMY_MAX_HP = 10;
-  const BULLET_RADIUS = 3;
+  const BULLET_RADIUS = 4;
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -396,16 +396,25 @@
       const target = nearestEnemy();
       if (target) {
         fireTimer = 0;
-        const dx = target.x - player.x;
-        const dy = target.y - player.y;
-        const dist = Math.hypot(dx, dy);
-        const dirX = dist > 0.001 ? dx / dist : 1;
-        const dirY = dist > 0.001 ? dy / dist : 0;
+
+        let tx = target.x;
+        let ty = target.y;
+        for (let i = 0; i < 2; i++) {
+          const dist = Math.hypot(tx - player.x, ty - player.y);
+          const time = dist / BULLET_SPEED;
+          tx = target.x + target.vx * time;
+          ty = target.y + target.vy * time;
+        }
+
+        const dx = tx - player.x;
+        const dy = ty - player.y;
+        const len = Math.hypot(dx, dy) || 1;
+
         bullets.push({
           x: player.x,
           y: player.y - THUMB_OFFSET,
-          vx: dirX * BULLET_SPEED,
-          vy: dirY * BULLET_SPEED
+          vx: (dx / len) * BULLET_SPEED,
+          vy: (dy / len) * BULLET_SPEED
         });
       }
     }
