@@ -41,6 +41,11 @@
   const CHASE_WEIGHT_TOUCHING = 0.6;   // lower pull once already at contact — press, don't grind
   const PLAYER_MAX_HP = 100;
   const CONTACT_DPS = 12;
+  const FIRE_RATE = 0.45;
+  const BULLET_SPEED = 520;
+  const BULLET_DAMAGE = 10;
+  const ENEMY_MAX_HP = 10;
+  const BULLET_RADIUS = 3;
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -71,14 +76,18 @@
     const edge = Math.floor(Math.random() * 4);
     const speed = ENEMY_SPEED * (0.9 + Math.random() * 0.2);   // +/-10%
     const turn = ENEMY_TURN * (0.85 + Math.random() * 0.3);
-    if (edge === 0) return { x: Math.random() * canvas.width, y: -pad, vx: 0, vy: 0, angle: 0, speed, turn };
-    if (edge === 1) return { x: canvas.width + pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0, speed, turn };
-    if (edge === 2) return { x: Math.random() * canvas.width, y: canvas.height + pad, vx: 0, vy: 0, angle: 0, speed, turn };
-    return { x: -pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0, speed, turn };
+    const hp = ENEMY_MAX_HP;
+    if (edge === 0) return { x: Math.random() * canvas.width, y: -pad, vx: 0, vy: 0, angle: 0, speed, turn, hp };
+    if (edge === 1) return { x: canvas.width + pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0, speed, turn, hp };
+    if (edge === 2) return { x: Math.random() * canvas.width, y: canvas.height + pad, vx: 0, vy: 0, angle: 0, speed, turn, hp };
+    return { x: -pad, y: Math.random() * canvas.height, vx: 0, vy: 0, angle: 0, speed, turn, hp };
   }
 
   const enemies = [];
   let spawnTimer = 0;
+
+  const bullets = [];
+  let fireTimer = 0;
 
   const keys = { up: false, down: false, left: false, right: false };
 
@@ -119,6 +128,8 @@
     enemies.length = 0;
     spawnTimer = 0;
     trail.length = 0;
+    bullets.length = 0;
+    fireTimer = 0;
     gameOver = false;
   }
 
@@ -366,6 +377,48 @@
 
   const THUMB_OFFSET = 15;
 
+  function updateBullets(dt) {
+    fireTimer += dt;
+    if (fireTimer >= FIRE_RATE) {
+      fireTimer = 0;
+      bullets.push({
+        x: player.x,
+        y: player.y - THUMB_OFFSET,
+        vx: Math.cos(player.angle) * BULLET_SPEED,
+        vy: Math.sin(player.angle) * BULLET_SPEED
+      });
+    }
+
+    for (const bullet of bullets) {
+      bullet.x += bullet.vx * dt;
+      bullet.y += bullet.vy * dt;
+
+      if (bullet.x < 0 || bullet.x > canvas.width || bullet.y < 0 || bullet.y > canvas.height) {
+        bullet.dead = true;
+        continue;
+      }
+
+      for (const enemy of enemies) {
+        if (enemy.dead) continue;
+        const dist = Math.hypot(bullet.x - enemy.x, bullet.y - enemy.y);
+        if (dist < ENEMY_RADIUS + BULLET_RADIUS) {
+          enemy.hp -= BULLET_DAMAGE;
+          bullet.dead = true;
+          if (enemy.hp <= 0) enemy.dead = true;
+          break;
+        }
+      }
+    }
+
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      if (bullets[i].dead) bullets.splice(i, 1);
+    }
+
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      if (enemies[i].dead) enemies.splice(i, 1);
+    }
+  }
+
   function draw() {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -393,6 +446,13 @@
       ctx.fill();
 
       ctx.restore();
+    }
+
+    ctx.fillStyle = '#fff';
+    for (const bullet of bullets) {
+      ctx.beginPath();
+      ctx.arc(bullet.x, bullet.y, BULLET_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     ctx.save();
@@ -463,6 +523,7 @@
     if (!gameOver) {
       update(dt);
       updateEnemies(dt);
+      updateBullets(dt);
     }
     draw();
     requestAnimationFrame(loop);
