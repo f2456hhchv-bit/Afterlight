@@ -1277,7 +1277,7 @@
       const gx = galaxyMargin + galaxySpacing * i;
       const lit = galaxies[i] === 1;
       const unlocked = i === 0 || galaxies[i - 1] === 1;
-      const selectable = unlocked && !lit;
+      const selectable = unlocked;
 
       if (lit) {
         ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
@@ -1295,13 +1295,14 @@
         ctx.beginPath();
         ctx.arc(gx, galaxyY, TUNE.GALAXY_RADIUS, 0, Math.PI * 2);
         ctx.stroke();
+      }
 
-        if (selectedGalaxy === i) {
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-          ctx.beginPath();
-          ctx.arc(gx, galaxyY, TUNE.GALAXY_RADIUS + 5, 0, Math.PI * 2);
-          ctx.stroke();
-        }
+      if (selectedGalaxy === i) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(gx, galaxyY, TUNE.GALAXY_RADIUS + 5, 0, Math.PI * 2);
+        ctx.stroke();
       }
 
       galaxyBounds.push({ x: gx, y: galaxyY, r: TUNE.GALAXY_RADIUS + 6, index: i, selectable });
@@ -1320,7 +1321,8 @@
 
     ctx.fillStyle = descendActive ? '#fff' : 'rgba(255, 255, 255, 0.4)';
     ctx.font = 'bold 16px sans-serif';
-    ctx.fillText('DESCEND', canvas.width / 2, descendY + descendH / 2 + 5);
+    const descendLabel = descendActive ? (galaxies[selectedGalaxy] === 1 ? 'HOLD' : 'TAKE') : 'DESCEND';
+    ctx.fillText(descendLabel, canvas.width / 2, descendY + descendH / 2 + 5);
 
     descendBounds = { x: descendX, y: descendY, w: descendW, h: descendH };
 
