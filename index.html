@@ -82,7 +82,16 @@
     WAVE_SPAWN_DURATION: 20.4,      // seconds a wave's arrivals are paced across
     WAVE_SPAWN_FRACTION: 0.6,       // fraction of WAVE_SPAWN_DURATION the budget arrives over
     DECAY_DAYS: 7,                  // days of absence before the deepest held galaxy reverts to dark
-    MAP_FOV: 260                    // field-of-view depth constant for the map corridor's perspective
+    MAP_FOV: 260,                   // field-of-view depth constant for the map corridor's perspective
+    COST_BASE: 40,                  // shop upgrade level n costs COST_BASE * (n ^ COST_POWER)
+    COST_POWER: 1.6,
+    SHOP_MAX_LEVEL: 5,
+    SHOP_HULL_BONUS: 10,             // +10 max HP per level
+    SHOP_VELOCITY_MULT: 1.04,        // +4% move speed per level
+    SHOP_CALIBRE_MULT: 1.06,         // +6% bullet damage per level
+    SHOP_CADENCE_MULT: 0.96,         // -4% time between shots per level
+    SHOP_REACH_MULT: 1.08,           // +8% pickup radius per level
+    SHOP_SALVAGE_MULT: 1.05          // +5% motes collected per level
   };
 
   const TUNE_DEFAULTS = { ...TUNE };
@@ -229,46 +238,86 @@
     };
   }
 
+  const SHOP_DEFS = [
+    { key: 'hull', name: 'HULL', desc: '+10 max HP per level' },
+    { key: 'velocity', name: 'VELOCITY', desc: '+4% move speed per level' },
+    { key: 'calibre', name: 'CALIBRE', desc: '+6% bullet damage per level' },
+    { key: 'cadence', name: 'CADENCE', desc: '-4% time between shots per level' },
+    { key: 'reach', name: 'REACH', desc: '+8% pickup radius per level' },
+    { key: 'salvage', name: 'SALVAGE', desc: '+5% motes collected per level' }
+  ];
+
+  function shopUpgradeCost(level) {
+    return Math.round(TUNE.COST_BASE * Math.pow(level, TUNE.COST_POWER));
+  }
+
+  function defaultShop() {
+    return { hull: 0, velocity: 0, calibre: 0, cadence: 0, reach: 0, salvage: 0 };
+  }
+
+  function readShop(obj) {
+    const ds = defaultShop();
+    if (!obj || typeof obj !== 'object') return ds;
+    const result = {};
+    for (const k of Object.keys(ds)) {
+      result[k] = typeof obj[k] === 'number' && obj[k] >= 0 && obj[k] <= TUNE.SHOP_MAX_LEVEL ? obj[k] : ds[k];
+    }
+    return result;
+  }
+
   function loadSave() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
       if (raw) {
         const obj = JSON.parse(raw);
-        if (obj && obj.v === 4 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+        if (obj && obj.v === 5 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 4,
+            v: 5,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
             deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
-            names: readNames(obj.names)
+            names: readNames(obj.names),
+            shop: readShop(obj.shop)
+          };
+        }
+        if (obj && obj.v === 4 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+          return {
+            v: 5,
+            motes: obj.motes,
+            galaxies: obj.galaxies,
+            lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
+            deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
+            names: readNames(obj.names),
+            shop: defaultShop()
           };
         }
         if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 4,
+            v: 5,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
             deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
-            names: defaultNames()
+            names: defaultNames(),
+            shop: defaultShop()
           };
         }
         if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
-          return { v: 4, motes: obj.motes, galaxies: obj.galaxies, lastPlayed: Date.now(), deepestHeld: obj.galaxies.filter((g) => g === 1).length, names: defaultNames() };
+          return { v: 5, motes: obj.motes, galaxies: obj.galaxies, lastPlayed: Date.now(), deepestHeld: obj.galaxies.filter((g) => g === 1).length, names: defaultNames(), shop: defaultShop() };
         }
         if (obj && obj.v === 1 && typeof obj.motes === 'number') {
-          return { v: 4, motes: obj.motes, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames() };
+          return { v: 5, motes: obj.motes, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop() };
         }
       }
     } catch (e) {}
-    return { v: 4, motes: 0, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames() };
+    return { v: 5, motes: 0, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop() };
   }
 
   function saveBank() {
     lastPlayed = Date.now();
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 4, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 5, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop }));
     } catch (e) {}
   }
 
@@ -295,7 +344,7 @@
   player.x = canvas.width / 2;
   player.y = canvas.height / 2;
 
-  const STATE = { MAP: 'map', RUN: 'run', DEAD: 'dead', VICTORY: 'victory', LEAP: 'leap' };
+  const STATE = { MAP: 'map', RUN: 'run', DEAD: 'dead', VICTORY: 'victory', LEAP: 'leap', SHOP: 'shop' };
   const LEAP_DURATION_MS = 1500;
   let leapFrom = 0;
   let leapTo = 0;
@@ -398,6 +447,7 @@
   let lastPlayed = initialSave.lastPlayed;
   let deepestHeld = initialSave.deepestHeld;
   let NAMES = initialSave.names;
+  let shop = initialSave.shop;
   let decayedGalaxyIndex = -1;
   let deathCause = null;
 
@@ -418,6 +468,9 @@
   let startButtons = [];
   let galaxyBounds = [];
   let descendBounds = null;
+  let shopButtonBounds = null;
+  let shopButtons = [];
+  let shopBackBounds = null;
   let saveMessage = '';
   let saveMessageUntil = 0;
 
@@ -504,8 +557,9 @@
     player.vx = 0;
     player.vy = 0;
     player.angle = -Math.PI / 2;
-    player.maxHp = TUNE.PLAYER_MAX_HP;
-    player.hp = TUNE.PLAYER_MAX_HP;
+    const baseMaxHp = TUNE.PLAYER_MAX_HP + shop.hull * TUNE.SHOP_HULL_BONUS;
+    player.maxHp = baseMaxHp;
+    player.hp = baseMaxHp;
     enemies.length = 0;
     trail.length = 0;
     bullets.length = 0;
@@ -526,6 +580,12 @@
   }
 
   function handleMapTap(x, y) {
+    if (shopButtonBounds &&
+        x >= shopButtonBounds.x && x <= shopButtonBounds.x + shopButtonBounds.w &&
+        y >= shopButtonBounds.y && y <= shopButtonBounds.y + shopButtonBounds.h) {
+      state = STATE.SHOP;
+      return;
+    }
     for (const btn of startButtons) {
       if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
         if (btn.action === 'export') exportSave();
@@ -552,6 +612,31 @@
     }
   }
 
+  function buyShopUpgrade(key) {
+    const level = shop[key];
+    if (level >= TUNE.SHOP_MAX_LEVEL) return;
+    const cost = shopUpgradeCost(level + 1);
+    if (bankedMotes < cost) return;
+    bankedMotes -= cost;
+    shop[key] = level + 1;
+    saveBank();
+  }
+
+  function handleShopTap(x, y) {
+    if (shopBackBounds &&
+        x >= shopBackBounds.x && x <= shopBackBounds.x + shopBackBounds.w &&
+        y >= shopBackBounds.y && y <= shopBackBounds.y + shopBackBounds.h) {
+      state = STATE.MAP;
+      return;
+    }
+    for (const btn of shopButtons) {
+      if (btn.buyable && x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
+        buyShopUpgrade(btn.key);
+        return;
+      }
+    }
+  }
+
   function pointerDown(x, y) {
     if (state === STATE.MAP) {
       mapDragging = true;
@@ -561,6 +646,10 @@
       mapDragLastTime = currentTime;
       mapDragMoved = 0;
       mapScrollVelocity = 0;
+      return;
+    }
+    if (state === STATE.SHOP) {
+      handleShopTap(x, y);
       return;
     }
     if (state === STATE.DEAD || state === STATE.VICTORY) {
@@ -654,6 +743,7 @@
   }
 
   function update(dt) {
+    const effectiveSpeed = TUNE.SPEED * Math.pow(TUNE.SHOP_VELOCITY_MULT, shop.velocity);
     let targetX = 0;
     let targetY = 0;
 
@@ -662,13 +752,13 @@
       const toY = fingerY - originY;
       const len = Math.hypot(toX, toY);
       if (len > TUNE.DEADZONE) {
-        targetX = (toX / len) * TUNE.SPEED;
-        targetY = (toY / len) * TUNE.SPEED;
+        targetX = (toX / len) * effectiveSpeed;
+        targetY = (toY / len) * effectiveSpeed;
       }
     } else {
       const key = getKeyVector();
-      targetX = key.x * TUNE.SPEED;
-      targetY = key.y * TUNE.SPEED;
+      targetX = key.x * effectiveSpeed;
+      targetY = key.y * effectiveSpeed;
     }
 
     const curLen = Math.hypot(player.vx, player.vy);
@@ -685,9 +775,9 @@
     player.vy += (targetY - player.vy) * response;
 
     const speed = Math.hypot(player.vx, player.vy);
-    if (speed > TUNE.SPEED) {
-      player.vx = (player.vx / speed) * TUNE.SPEED;
-      player.vy = (player.vy / speed) * TUNE.SPEED;
+    if (speed > effectiveSpeed) {
+      player.vx = (player.vx / speed) * effectiveSpeed;
+      player.vy = (player.vy / speed) * effectiveSpeed;
     }
 
     player.x += player.vx * dt;
@@ -771,7 +861,7 @@
     }
     deathCause = cause;
     state = STATE.DEAD;
-    bankedMotes += runMotes;
+    bankedMotes += Math.round(runMotes);
     saveBank();
   }
 
@@ -966,7 +1056,7 @@
   }
 
   function exportSave() {
-    const text = JSON.stringify({ v: 4, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES });
+    const text = JSON.stringify({ v: 5, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop });
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text)
         .then(() => { saveMessage = 'Copied to clipboard'; saveMessageUntil = currentTime + 2000; })
@@ -979,11 +1069,20 @@
     if (!text) return;
     try {
       const obj = JSON.parse(text);
-      if (obj && obj.v === 4 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+      if (obj && obj.v === 5 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
         bankedMotes = obj.motes;
         galaxies = obj.galaxies.slice();
         deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
         NAMES = readNames(obj.names);
+        shop = readShop(obj.shop);
+        saveBank();
+        saveMessage = 'Import successful';
+      } else if (obj && obj.v === 4 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+        bankedMotes = obj.motes;
+        galaxies = obj.galaxies.slice();
+        deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
+        NAMES = readNames(obj.names);
+        shop = defaultShop();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -991,6 +1090,7 @@
         galaxies = obj.galaxies.slice();
         deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
         NAMES = defaultNames();
+        shop = defaultShop();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -998,6 +1098,7 @@
         galaxies = obj.galaxies.slice();
         deepestHeld = galaxies.filter((g) => g === 1).length;
         NAMES = defaultNames();
+        shop = defaultShop();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 1 && typeof obj.motes === 'number') {
@@ -1005,6 +1106,7 @@
         galaxies = new Array(10).fill(0);
         deepestHeld = 0;
         NAMES = defaultNames();
+        shop = defaultShop();
         saveBank();
         saveMessage = 'Import successful';
       } else {
@@ -1017,7 +1119,7 @@
   }
 
   function updateMotes(dt) {
-    const reachRadius = TUNE.PICKUP_RADIUS * Math.pow(TUNE.REACH_MULT, upgradeLevels.reach);
+    const reachRadius = TUNE.PICKUP_RADIUS * Math.pow(TUNE.REACH_MULT, upgradeLevels.reach) * Math.pow(TUNE.SHOP_REACH_MULT, shop.reach);
 
     for (let i = motes.length - 1; i >= 0; i--) {
       const mote = motes[i];
@@ -1028,7 +1130,7 @@
       if (dist < TUNE.PLAYER_RADIUS) {
         motes.splice(i, 1);
         xp++;
-        runMotes++;
+        runMotes += Math.pow(TUNE.SHOP_SALVAGE_MULT, shop.salvage);
         checkLevelUp();
         continue;
       }
@@ -1043,7 +1145,7 @@
 
   function updateBullets(dt) {
     fireTimer += dt;
-    const effectiveFireRate = TUNE.FIRE_RATE * Math.pow(TUNE.FIRE_RATE_MULT, upgradeLevels.fireRate);
+    const effectiveFireRate = TUNE.FIRE_RATE * Math.pow(TUNE.FIRE_RATE_MULT, upgradeLevels.fireRate) * Math.pow(TUNE.SHOP_CADENCE_MULT, shop.cadence);
     if (fireTimer >= effectiveFireRate) {
       const target = acquireTarget();
       if (target) {
@@ -1131,7 +1233,7 @@
       bullet.y = ny;
 
       if (closest) {
-        closest.hp -= TUNE.BULLET_DAMAGE * Math.pow(TUNE.DAMAGE_MULT, upgradeLevels.damage);
+        closest.hp -= TUNE.BULLET_DAMAGE * Math.pow(TUNE.DAMAGE_MULT, upgradeLevels.damage) * Math.pow(TUNE.SHOP_CALIBRE_MULT, shop.calibre);
         closest.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
 
         const blen = Math.hypot(bullet.vx, bullet.vy) || 1;
@@ -1164,7 +1266,7 @@
             galaxies[currentGalaxy] = 1;
             const heldCount = galaxies.filter((g) => g === 1).length;
             if (heldCount > deepestHeld) deepestHeld = heldCount;
-            bankedMotes += runMotes;
+            bankedMotes += Math.round(runMotes);
             saveBank();
             leapFrom = currentGalaxy;
             leapTo = Math.min(currentGalaxy + 1, GALAXY_DATA.length - 1);
@@ -1207,6 +1309,10 @@
     }
     if (state === STATE.LEAP) {
       drawLeap();
+      return;
+    }
+    if (state === STATE.SHOP) {
+      drawShop();
       return;
     }
     drawRun();
@@ -1438,6 +1544,77 @@
     ctx.fillText('Tap to continue', canvas.width / 2, canvas.height / 2 + 60);
   }
 
+  function drawShop() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText('SHOP', canvas.width / 2, 40);
+
+    ctx.font = '15px sans-serif';
+    ctx.fillText('LIGHT: ' + bankedMotes.toLocaleString(), canvas.width / 2, 66);
+
+    const backW = 60;
+    const backH = 28;
+    shopBackBounds = { x: 14, y: 12, w: backW, h: backH };
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fillRect(shopBackBounds.x, shopBackBounds.y, backW, backH);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(shopBackBounds.x, shopBackBounds.y, backW, backH);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('BACK', shopBackBounds.x + backW / 2, shopBackBounds.y + backH / 2 + 4);
+
+    shopButtons = [];
+    const rowH = 78;
+    const rowsStartY = 96;
+    const rowW = canvas.width - 40;
+    const rowX = 20;
+
+    for (let i = 0; i < SHOP_DEFS.length; i++) {
+      const def = SHOP_DEFS[i];
+      const level = shop[def.key];
+      const maxed = level >= TUNE.SHOP_MAX_LEVEL;
+      const cost = maxed ? null : shopUpgradeCost(level + 1);
+      const canAfford = !maxed && bankedMotes >= cost;
+      const rowY = rowsStartY + i * rowH;
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+      ctx.fillRect(rowX, rowY, rowW, rowH - 10);
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText(def.name + '   Lv ' + level + ' / ' + TUNE.SHOP_MAX_LEVEL, rowX + 12, rowY + 24);
+
+      ctx.font = '12px sans-serif';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.fillText(def.desc, rowX + 12, rowY + 44);
+
+      const btnW = 92;
+      const btnH = 38;
+      const btnX = rowX + rowW - btnW - 12;
+      const btnY = rowY + (rowH - 10 - btnH) / 2;
+
+      ctx.fillStyle = maxed ? 'rgba(255, 255, 255, 0.1)' : (canAfford ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.08)');
+      ctx.fillRect(btnX, btnY, btnW, btnH);
+      ctx.strokeStyle = maxed ? 'rgba(255, 255, 255, 0.15)' : (canAfford ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.25)');
+      ctx.strokeRect(btnX, btnY, btnW, btnH);
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = maxed ? 'rgba(255, 255, 255, 0.3)' : (canAfford ? '#fff' : 'rgba(255, 255, 255, 0.5)');
+      ctx.font = 'bold 13px sans-serif';
+      ctx.fillText(maxed ? 'MAXED' : String(cost), btnX + btnW / 2, btnY + btnH / 2 + 5);
+
+      shopButtons.push({ x: btnX, y: btnY, w: btnW, h: btnH, key: def.key, buyable: !maxed && canAfford });
+    }
+
+    ctx.textAlign = 'left';
+  }
+
   function drawMap() {
     const HEADER_HEIGHT = 140;
     const FOOTER_HEIGHT = 160;
@@ -1466,6 +1643,20 @@
       ctx.fillText('THE DARK TOOK ' + NAMES.galaxies[decayedGalaxyIndex].toUpperCase() + ' WHILE YOU WERE AWAY.', canvas.width / 2, 124);
       ctx.fillStyle = '#fff';
     }
+
+    const shopBtnW = 64;
+    const shopBtnH = 28;
+    const shopBtnX = canvas.width - shopBtnW - 14;
+    const shopBtnY = 12;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fillRect(shopBtnX, shopBtnY, shopBtnW, shopBtnH);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(shopBtnX, shopBtnY, shopBtnW, shopBtnH);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('SHOP', shopBtnX + shopBtnW / 2, shopBtnY + shopBtnH / 2 + 4);
+    shopButtonBounds = { x: shopBtnX, y: shopBtnY, w: shopBtnW, h: shopBtnH };
 
     const scrollTop = HEADER_HEIGHT;
     const scrollBottom = canvas.height - FOOTER_HEIGHT;
