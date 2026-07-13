@@ -390,6 +390,18 @@
     return nearest;
   }
 
+  function segmentHitsCircle(px, py, nx, ny, cx, cy, r) {
+    const dx = nx - px, dy = ny - py;
+    const fx = px - cx, fy = py - cy;
+    const a = dx * dx + dy * dy;
+    if (a < 0.0001) return (fx * fx + fy * fy) <= r * r;
+    let t = -(fx * dx + fy * dy) / a;
+    t = Math.max(0, Math.min(1, t));
+    const cxp = px + dx * t - cx;
+    const cyp = py + dy * t - cy;
+    return (cxp * cxp + cyp * cyp) <= r * r;
+  }
+
   function updateBullets(dt) {
     fireTimer += dt;
     if (fireTimer >= FIRE_RATE) {
@@ -420,23 +432,33 @@
     }
 
     for (const bullet of bullets) {
-      bullet.x += bullet.vx * dt;
-      bullet.y += bullet.vy * dt;
+      const px = bullet.x;
+      const py = bullet.y;
+      const nx = bullet.x + bullet.vx * dt;
+      const ny = bullet.y + bullet.vy * dt;
 
-      if (bullet.x < 0 || bullet.x > canvas.width || bullet.y < 0 || bullet.y > canvas.height) {
-        bullet.dead = true;
-        continue;
-      }
-
+      let closest = null;
+      let closestDist = Infinity;
       for (const enemy of enemies) {
         if (enemy.dead) continue;
-        const dist = Math.hypot(bullet.x - enemy.x, bullet.y - enemy.y);
-        if (dist < ENEMY_RADIUS + BULLET_RADIUS) {
-          enemy.hp -= BULLET_DAMAGE;
-          bullet.dead = true;
-          if (enemy.hp <= 0) enemy.dead = true;
-          break;
+        if (segmentHitsCircle(px, py, nx, ny, enemy.x, enemy.y, BULLET_RADIUS + ENEMY_RADIUS)) {
+          const dist = Math.hypot(enemy.x - px, enemy.y - py);
+          if (dist < closestDist) {
+            closestDist = dist;
+            closest = enemy;
+          }
         }
+      }
+
+      bullet.x = nx;
+      bullet.y = ny;
+
+      if (closest) {
+        closest.hp -= BULLET_DAMAGE;
+        bullet.dead = true;
+        if (closest.hp <= 0) closest.dead = true;
+      } else if (nx < 0 || nx > canvas.width || ny < 0 || ny > canvas.height) {
+        bullet.dead = true;
       }
     }
 
