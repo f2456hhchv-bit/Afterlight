@@ -86,37 +86,64 @@
 
   const SAVE_KEY = 'afterlight.save.v1';
 
-  const GALAXY_NAMES = ['EDGE', 'CINDER REACH', 'HOLLOW DRIFT', 'ASHFALL VOID', 'PALE MARCH', 'EMBER RIFT', 'QUIET EXPANSE', 'DUSK HAVEN', 'LAST LIGHT', 'CENTRE'];
+  function defaultNames() {
+    return {
+      galaxies: Array.from({ length: 10 }, (_, i) => 'Galaxy ' + (i + 1)),
+      boss: 'The Maw',
+      enemy: 'The Hollow'
+    };
+  }
+
+  function readNames(obj) {
+    const dn = defaultNames();
+    if (!obj || typeof obj !== 'object') return dn;
+    return {
+      galaxies: Array.isArray(obj.galaxies) && obj.galaxies.length === 10 ? obj.galaxies.slice() : dn.galaxies,
+      boss: typeof obj.boss === 'string' ? obj.boss : dn.boss,
+      enemy: typeof obj.enemy === 'string' ? obj.enemy : dn.enemy
+    };
+  }
 
   function loadSave() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
       if (raw) {
         const obj = JSON.parse(raw);
-        if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+        if (obj && obj.v === 4 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 3,
+            v: 4,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
-            deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length
+            deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
+            names: readNames(obj.names)
+          };
+        }
+        if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+          return {
+            v: 4,
+            motes: obj.motes,
+            galaxies: obj.galaxies,
+            lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
+            deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
+            names: defaultNames()
           };
         }
         if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
-          return { v: 3, motes: obj.motes, galaxies: obj.galaxies, lastPlayed: Date.now(), deepestHeld: obj.galaxies.filter((g) => g === 1).length };
+          return { v: 4, motes: obj.motes, galaxies: obj.galaxies, lastPlayed: Date.now(), deepestHeld: obj.galaxies.filter((g) => g === 1).length, names: defaultNames() };
         }
         if (obj && obj.v === 1 && typeof obj.motes === 'number') {
-          return { v: 3, motes: obj.motes, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0 };
+          return { v: 4, motes: obj.motes, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames() };
         }
       }
     } catch (e) {}
-    return { v: 3, motes: 0, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0 };
+    return { v: 4, motes: 0, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames() };
   }
 
   function saveBank() {
     lastPlayed = Date.now();
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 3, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 4, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES }));
     } catch (e) {}
   }
 
@@ -241,7 +268,9 @@
   let galaxies = initialSave.galaxies;
   let lastPlayed = initialSave.lastPlayed;
   let deepestHeld = initialSave.deepestHeld;
+  let NAMES = initialSave.names;
   let decayedGalaxyIndex = -1;
+  let deathCause = null;
 
   if (Date.now() - lastPlayed > TUNE.DECAY_DAYS * 24 * 60 * 60 * 1000) {
     for (let i = galaxies.length - 1; i >= 0; i--) {
@@ -276,6 +305,7 @@
   let xp = 0;
   let level = 1;
   let paused = false;
+  let debugPaused = false;
   let draftOptions = [];
   let cardBounds = [];
 
@@ -535,11 +565,12 @@
     return { x: sepX, y: sepY };
   }
 
-  function killPlayer() {
+  function killPlayer(cause) {
     player.hp = 0;
     if (galaxies[currentGalaxy] === 1) {
       galaxies[currentGalaxy] = 0;
     }
+    deathCause = cause;
     state = STATE.DEAD;
     bankedMotes += runMotes;
     saveBank();
@@ -602,7 +633,7 @@
 
         player.hp -= TUNE.CONTACT_DPS * dt;
         if (player.hp <= 0) {
-          killPlayer();
+          killPlayer('enemy');
         }
       }
 
@@ -642,7 +673,7 @@
 
       player.hp -= TUNE.BOSS_DPS * dt;
       if (player.hp <= 0) {
-        killPlayer();
+        killPlayer('boss');
       }
     }
   }
@@ -736,7 +767,7 @@
   }
 
   function exportSave() {
-    const text = JSON.stringify({ v: 3, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld });
+    const text = JSON.stringify({ v: 4, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES });
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text)
         .then(() => { saveMessage = 'Copied to clipboard'; saveMessageUntil = currentTime + 2000; })
@@ -749,22 +780,32 @@
     if (!text) return;
     try {
       const obj = JSON.parse(text);
-      if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+      if (obj && obj.v === 4 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
         bankedMotes = obj.motes;
         galaxies = obj.galaxies.slice();
         deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
+        NAMES = readNames(obj.names);
+        saveBank();
+        saveMessage = 'Import successful';
+      } else if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+        bankedMotes = obj.motes;
+        galaxies = obj.galaxies.slice();
+        deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
+        NAMES = defaultNames();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
         bankedMotes = obj.motes;
         galaxies = obj.galaxies.slice();
         deepestHeld = galaxies.filter((g) => g === 1).length;
+        NAMES = defaultNames();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 1 && typeof obj.motes === 'number') {
         bankedMotes = obj.motes;
         galaxies = new Array(10).fill(0);
         deepestHeld = 0;
+        NAMES = defaultNames();
         saveBank();
         saveMessage = 'Import successful';
       } else {
@@ -1103,6 +1144,12 @@
       ctx.fillRect(0, bossBarY, canvas.width, bossBarHeight);
       ctx.fillStyle = '#c0f';
       ctx.fillRect(0, bossBarY, canvas.width * (boss.hp / boss.maxHp), bossBarHeight);
+
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.font = '12px sans-serif';
+      ctx.fillText(NAMES.boss.toUpperCase(), canvas.width / 2, bossBarY + bossBarHeight + 14);
+      ctx.textAlign = 'left';
     }
 
     if (paused) {
@@ -1150,8 +1197,10 @@
     ctx.fillText('THE DARK TAKES YOU', canvas.width / 2, canvas.height / 2);
 
     ctx.font = '16px sans-serif';
-    ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 + 32);
-    ctx.fillText('Tap to restart', canvas.width / 2, canvas.height / 2 + 60);
+    const killer = deathCause === 'boss' ? NAMES.boss : NAMES.enemy;
+    ctx.fillText('SLAIN BY ' + killer.toUpperCase(), canvas.width / 2, canvas.height / 2 + 26);
+    ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 + 50);
+    ctx.fillText('Tap to restart', canvas.width / 2, canvas.height / 2 + 74);
   }
 
   function drawVictory() {
@@ -1182,7 +1231,7 @@
     if (decayedGalaxyIndex !== -1) {
       ctx.fillStyle = 'rgba(255, 140, 140, 0.9)';
       ctx.font = '12px sans-serif';
-      ctx.fillText('THE DARK TOOK ' + GALAXY_NAMES[decayedGalaxyIndex] + ' WHILE YOU WERE AWAY.', canvas.width / 2, canvas.height / 2 - 44);
+      ctx.fillText('THE DARK TOOK ' + NAMES.galaxies[decayedGalaxyIndex].toUpperCase() + ' WHILE YOU WERE AWAY.', canvas.width / 2, canvas.height / 2 - 44);
       ctx.fillStyle = '#fff';
     }
 
@@ -1282,7 +1331,7 @@
     lastTime = timestamp;
     currentTime = timestamp;
 
-    if (state === STATE.RUN && !paused) {
+    if (state === STATE.RUN && !paused && !debugPaused) {
       update(dt);
       updateWave(dt);
       updateEnemies(dt);
@@ -1320,10 +1369,44 @@
     document.body.appendChild(panel);
 
     const title = document.createElement('div');
-    title.textContent = 'TUNE (~ or 3-finger tap to toggle)';
+    title.textContent = 'DEV KIT (~ or 3-finger tap to toggle)';
     title.style.cssText = 'font-weight:bold; margin-bottom:8px;';
     panel.appendChild(title);
 
+    const tabBar = document.createElement('div');
+    tabBar.style.cssText = 'display:flex; gap:4px; margin-bottom:10px;';
+    panel.appendChild(tabBar);
+
+    const tuneTab = document.createElement('div');
+    const namesTab = document.createElement('div');
+    const saveTab = document.createElement('div');
+    namesTab.style.display = 'none';
+    saveTab.style.display = 'none';
+    panel.appendChild(tuneTab);
+    panel.appendChild(namesTab);
+    panel.appendChild(saveTab);
+
+    const tabButtons = [];
+    function makeTabButton(label, target) {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      btn.style.cssText = 'flex:1; padding:6px; background:rgba(255,255,255,0.15); color:#fff; border:none; cursor:pointer; font:12px monospace;';
+      btn.onclick = () => {
+        tuneTab.style.display = target === tuneTab ? 'block' : 'none';
+        namesTab.style.display = target === namesTab ? 'block' : 'none';
+        saveTab.style.display = target === saveTab ? 'block' : 'none';
+        for (const b of tabButtons) b.style.background = b === btn ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.15)';
+      };
+      tabBar.appendChild(btn);
+      tabButtons.push(btn);
+      return btn;
+    }
+    const tuneTabBtn = makeTabButton('TUNE', tuneTab);
+    makeTabButton('NAMES', namesTab);
+    makeTabButton('SAVE', saveTab);
+    tuneTabBtn.style.background = 'rgba(255,255,255,0.35)';
+
+    // --- TUNE tab: unchanged sliders ---
     for (const key of Object.keys(TUNE)) {
       const value = TUNE[key];
       const max = value !== 0 ? Math.abs(value) * 4 : 10;
@@ -1355,7 +1438,7 @@
       };
       row.appendChild(input);
 
-      panel.appendChild(row);
+      tuneTab.appendChild(row);
     }
 
     const copyBtn = document.createElement('button');
@@ -1374,11 +1457,111 @@
       }
     };
 
-    panel.appendChild(copyBtn);
-    panel.appendChild(output);
+    tuneTab.appendChild(copyBtn);
+    tuneTab.appendChild(output);
+
+    // --- NAMES tab ---
+    const nameInputs = [];
+    function makeNameRow(label, value, onChange) {
+      const row = document.createElement('div');
+      row.style.cssText = 'margin-bottom:8px;';
+      const lbl = document.createElement('label');
+      lbl.textContent = label;
+      lbl.style.cssText = 'display:block; margin-bottom:2px;';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = value;
+      input.style.cssText = 'width:100%; box-sizing:border-box; font:12px monospace;';
+      input.oninput = () => onChange(input.value);
+      row.appendChild(lbl);
+      row.appendChild(input);
+      namesTab.appendChild(row);
+      nameInputs.push(input);
+      return input;
+    }
+
+    for (let i = 0; i < NAMES.galaxies.length; i++) {
+      makeNameRow('Galaxy ' + (i + 1), NAMES.galaxies[i], (v) => { NAMES.galaxies[i] = v; saveBank(); });
+    }
+    makeNameRow('Boss', NAMES.boss, (v) => { NAMES.boss = v; saveBank(); });
+    makeNameRow('Enemy', NAMES.enemy, (v) => { NAMES.enemy = v; saveBank(); });
+
+    function refreshNameInputs() {
+      for (let i = 0; i < NAMES.galaxies.length; i++) nameInputs[i].value = NAMES.galaxies[i];
+      nameInputs[NAMES.galaxies.length].value = NAMES.boss;
+      nameInputs[NAMES.galaxies.length + 1].value = NAMES.enemy;
+    }
+
+    // --- SAVE tab: existing Export/Import plus dev tools ---
+    const exportBtn = document.createElement('button');
+    exportBtn.textContent = 'Export save';
+    exportBtn.style.cssText = 'width:100%; padding:6px; margin-bottom:6px;';
+    exportBtn.onclick = exportSave;
+    saveTab.appendChild(exportBtn);
+
+    const importBtn = document.createElement('button');
+    importBtn.textContent = 'Import save';
+    importBtn.style.cssText = 'width:100%; padding:6px; margin-bottom:12px;';
+    importBtn.onclick = () => { importSave(); refreshNameInputs(); };
+    saveTab.appendChild(importBtn);
+
+    const wipeBtn = document.createElement('button');
+    wipeBtn.textContent = 'Wipe save';
+    wipeBtn.style.cssText = 'width:100%; padding:6px; margin-bottom:6px; background:rgba(255,80,80,0.3); color:#fff; border:none;';
+    wipeBtn.onclick = () => {
+      if (!confirm('Wipe save? This cannot be undone.')) return;
+      try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+      bankedMotes = 0;
+      galaxies = new Array(10).fill(0);
+      deepestHeld = 0;
+      NAMES = defaultNames();
+      decayedGalaxyIndex = -1;
+      saveBank();
+      refreshNameInputs();
+      saveMessage = 'Save wiped';
+      saveMessageUntil = currentTime + 2000;
+    };
+    saveTab.appendChild(wipeBtn);
+
+    const lightAllBtn = document.createElement('button');
+    lightAllBtn.textContent = 'Light all galaxies';
+    lightAllBtn.style.cssText = 'width:100%; padding:6px; margin-bottom:6px;';
+    lightAllBtn.onclick = () => {
+      for (let i = 0; i < galaxies.length; i++) galaxies[i] = 1;
+      if (galaxies.length > deepestHeld) deepestHeld = galaxies.length;
+      saveBank();
+      saveMessage = 'All galaxies lit';
+      saveMessageUntil = currentTime + 2000;
+    };
+    saveTab.appendChild(lightAllBtn);
+
+    const motesRow = document.createElement('div');
+    motesRow.style.cssText = 'display:flex; gap:4px; margin-top:4px;';
+    const motesInput = document.createElement('input');
+    motesInput.type = 'number';
+    motesInput.min = 0;
+    motesInput.value = bankedMotes;
+    motesInput.style.cssText = 'flex:1; min-width:0; box-sizing:border-box; font:12px monospace;';
+    const motesBtn = document.createElement('button');
+    motesBtn.textContent = 'Set motes';
+    motesBtn.style.cssText = 'padding:6px;';
+    motesBtn.onclick = () => {
+      const n = parseInt(motesInput.value, 10);
+      if (!isNaN(n) && n >= 0) {
+        bankedMotes = n;
+        saveBank();
+        saveMessage = 'Motes set';
+        saveMessageUntil = currentTime + 2000;
+      }
+    };
+    motesRow.appendChild(motesInput);
+    motesRow.appendChild(motesBtn);
+    saveTab.appendChild(motesRow);
 
     function togglePanel() {
-      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+      const opening = panel.style.display === 'none';
+      panel.style.display = opening ? 'block' : 'none';
+      debugPaused = opening;
     }
 
     const toggleBtn = document.createElement('button');
