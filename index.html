@@ -567,10 +567,10 @@
       if (!mapDragging) return;
       const dy = y - mapDragLastY;
       const dtMs = Math.max(1, currentTime - mapDragLastTime);
-      const instantVelocity = (dy / dtMs) * 1000;
+      const instantVelocity = -(dy / dtMs) * 1000;
       mapScrollVelocity = mapScrollVelocity * 0.7 + instantVelocity * 0.3;
       mapScrollVelocity = Math.max(-MAP_SCROLL_MAX_VELOCITY, Math.min(MAP_SCROLL_MAX_VELOCITY, mapScrollVelocity));
-      mapScroll += dy;
+      mapScroll -= dy;
       clampMapScroll();
       mapDragMoved = Math.max(mapDragMoved, Math.hypot(x - mapDragStartX, y - mapDragStartY));
       mapDragLastY = y;
