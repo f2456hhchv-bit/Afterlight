@@ -84,6 +84,39 @@
     DECAY_DAYS: 7                   // days of absence before the deepest held galaxy reverts to dark
   };
 
+  const TUNE_DEFAULTS = { ...TUNE };
+  const TUNE_KEY = 'afterlight.tune.v1';
+
+  function loadTuneOverrides() {
+    try {
+      const raw = localStorage.getItem(TUNE_KEY);
+      if (raw) {
+        const obj = JSON.parse(raw);
+        if (obj && typeof obj === 'object') return obj;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function saveTuneOverrides() {
+    try {
+      const overrides = {};
+      for (const k of Object.keys(TUNE)) {
+        if (TUNE[k] !== TUNE_DEFAULTS[k]) overrides[k] = TUNE[k];
+      }
+      localStorage.setItem(TUNE_KEY, JSON.stringify(overrides));
+    } catch (e) {}
+  }
+
+  const tuneOverrides = loadTuneOverrides();
+  if (tuneOverrides) {
+    for (const k of Object.keys(tuneOverrides)) {
+      if (Object.prototype.hasOwnProperty.call(TUNE, k) && typeof tuneOverrides[k] === 'number') {
+        TUNE[k] = tuneOverrides[k];
+      }
+    }
+  }
+
   const SAVE_KEY = 'afterlight.save.v1';
 
   function defaultNames() {
@@ -1406,7 +1439,25 @@
     makeTabButton('SAVE', saveTab);
     tuneTabBtn.style.background = 'rgba(255,255,255,0.35)';
 
-    // --- TUNE tab: unchanged sliders ---
+    // --- TUNE tab ---
+    const overrideBanner = document.createElement('div');
+    overrideBanner.textContent = 'TUNED VALUES ACTIVE — these override the source defaults';
+    overrideBanner.style.cssText = 'display:none; background:rgba(255,200,0,0.2); color:#ffdd66; padding:6px; margin-bottom:8px; font-weight:bold; font-size:11px;';
+    tuneTab.appendChild(overrideBanner);
+
+    function anyTuneOverrideActive() {
+      return Object.keys(TUNE_DEFAULTS).some((k) => TUNE[k] !== TUNE_DEFAULTS[k]);
+    }
+    function updateOverrideBanner() {
+      overrideBanner.style.display = anyTuneOverrideActive() ? 'block' : 'none';
+    }
+
+    const resetBtn = document.createElement('button');
+    resetBtn.textContent = 'RESET TO DEFAULTS';
+    resetBtn.style.cssText = 'width:100%; padding:6px; margin-bottom:10px; background:rgba(255,255,255,0.15); color:#fff; border:none;';
+    tuneTab.appendChild(resetBtn);
+
+    const sliderRefs = {};
     for (const key of Object.keys(TUNE)) {
       const value = TUNE[key];
       const max = value !== 0 ? Math.abs(value) * 4 : 10;
@@ -1435,29 +1486,63 @@
       input.oninput = () => {
         TUNE[key] = parseFloat(input.value);
         valueSpan.textContent = TUNE[key];
+        saveTuneOverrides();
+        updateOverrideBanner();
       };
       row.appendChild(input);
 
       tuneTab.appendChild(row);
+      sliderRefs[key] = { input, valueSpan };
     }
 
-    const copyBtn = document.createElement('button');
-    copyBtn.textContent = 'Copy values';
-    copyBtn.style.cssText = 'width:100%; padding:6px; margin-top:4px;';
+    resetBtn.onclick = () => {
+      for (const k of Object.keys(TUNE_DEFAULTS)) {
+        TUNE[k] = TUNE_DEFAULTS[k];
+        sliderRefs[k].input.value = TUNE[k];
+        sliderRefs[k].valueSpan.textContent = TUNE[k];
+      }
+      try { localStorage.removeItem(TUNE_KEY); } catch (e) {}
+      updateOverrideBanner();
+    };
+
+    updateOverrideBanner();
+
+    function buildTuneCodeBlock(keys) {
+      const lines = keys.map((k, i) => '    ' + k + ': ' + TUNE[k] + (i < keys.length - 1 ? ',' : ''));
+      return '  const TUNE = {\n' + lines.join('\n') + '\n  };';
+    }
+
+    const copyCodeBtn = document.createElement('button');
+    copyCodeBtn.textContent = 'Copy as code';
+    copyCodeBtn.style.cssText = 'width:100%; padding:6px; margin-top:4px;';
+
+    const copyChangedBtn = document.createElement('button');
+    copyChangedBtn.textContent = 'Copy changed only';
+    copyChangedBtn.style.cssText = 'width:100%; padding:6px; margin-top:4px;';
 
     const output = document.createElement('textarea');
     output.readOnly = true;
     output.style.cssText = 'width:100%; height:120px; margin-top:8px; font:11px monospace; box-sizing:border-box;';
 
-    copyBtn.onclick = () => {
-      const text = Object.keys(TUNE).map((k) => `const ${k} = ${TUNE[k]};`).join('\n');
+    copyCodeBtn.onclick = () => {
+      const text = buildTuneCodeBlock(Object.keys(TUNE));
       output.value = text;
       if (navigator.clipboard) {
         navigator.clipboard.writeText(text).catch(() => {});
       }
     };
 
-    tuneTab.appendChild(copyBtn);
+    copyChangedBtn.onclick = () => {
+      const changed = Object.keys(TUNE).filter((k) => TUNE[k] !== TUNE_DEFAULTS[k]);
+      const text = changed.length > 0 ? buildTuneCodeBlock(changed) : '  // no values changed from defaults';
+      output.value = text;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).catch(() => {});
+      }
+    };
+
+    tuneTab.appendChild(copyCodeBtn);
+    tuneTab.appendChild(copyChangedBtn);
     tuneTab.appendChild(output);
 
     // --- NAMES tab ---
