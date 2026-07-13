@@ -23,20 +23,20 @@
   const DEBUG = true;
 
   const TUNE = {
-    SPEED: 195,
+    SPEED: 159.9,
     RESPONSE_TURN: 0.22,   // gentle turns: weight and carve
     RESPONSE_SNAP: 0.9,    // hard turns / reversals: near-instant
     SNAP_ANGLE: 1.4,       // radians (~80deg). At/above this, use full SNAP.
     DEADZONE: 2,
     TURN_RATE: 0.15,
-    PULSE_DURATION: 180,
+    PULSE_DURATION: 151.2,
     MARGIN: 24,
     ENEMY_SPEED: 110,
     ENEMY_TURN: 0.045,     // LOW. The enemy commits to a heading and
                            // overshoots when the player cuts across it.
-    MAX_ENEMIES: 85,
+    MAX_ENEMIES: 102,
     SEPARATION_RADIUS: 28, // px — how close before they push apart
-    CHASE_WEIGHT: 1.0,
+    CHASE_WEIGHT: 1,
     SEPARATION_WEIGHT: 1.2, // higher = they spread more, chase less
     PLAYER_RADIUS: 14,
     ENEMY_RADIUS: 9,
@@ -44,17 +44,17 @@
     PLAYER_MAX_HP: 100,
     CONTACT_DPS: 12,
     FIRE_RATE: 0.45,
-    BULLET_SPEED: 520,
+    BULLET_SPEED: 405.6,
     BULLET_DAMAGE: 10,
     ENEMY_MAX_HP: 10,
     BULLET_RADIUS: 4,
     TARGET_DROP_RANGE: 420, // px — drop target beyond this
-    HIT_FLASH_MS: 60,
-    KNOCKBACK: 40,
-    SHAKE_KILL: 1.5,
+    HIT_FLASH_MS: 48,
+    KNOCKBACK: 24.8,
+    SHAKE_KILL: 0.99,
     SHAKE_DECAY_MS: 80,
     DEATH_BURST_MS: 400,
-    IMPACT_SPARK_MS: 120,
+    IMPACT_SPARK_MS: 79.2,
     TRAIL_LENGTH: 10,
     THUMB_OFFSET: 15,
     PICKUP_RADIUS: 90,
@@ -69,17 +69,17 @@
     MULTISHOT_SPREAD: 0.09, // radians between adjacent bullets in a volley
     XP_BAR_HEIGHT: 5,
     GALAXY_RADIUS: 14,
-    BOSS_HP: 1200,
-    BOSS_SPEED: 75,
+    BOSS_HP: 1800,
+    BOSS_SPEED: 81,
     BOSS_DPS: 30,
     BOSS_RADIUS: 30,
     WAVES_PER_GALAXY: 10,
-    BREATHER: 4,             // seconds of no spawns between waves
+    BREATHER: 3.04,          // seconds of no spawns between waves
     WAVE_COUNT_BASE: 12,     // enemy count = WAVE_COUNT_BASE + n * WAVE_COUNT_PER_WAVE
     WAVE_COUNT_PER_WAVE: 8,
     WAVE_HP_GROWTH_PER_WAVE: 0.35,  // enemy HP = ENEMY_MAX_HP * (1 + n * this)
     WAVE_SPEED_PER_WAVE: 4,         // enemy speed = ENEMY_SPEED + n * this
-    WAVE_SPAWN_DURATION: 30,        // seconds a wave's arrivals are paced across
+    WAVE_SPAWN_DURATION: 20.4,      // seconds a wave's arrivals are paced across
     WAVE_SPAWN_FRACTION: 0.6,       // fraction of WAVE_SPAWN_DURATION the budget arrives over
     DECAY_DAYS: 7                   // days of absence before the deepest held galaxy reverts to dark
   };
