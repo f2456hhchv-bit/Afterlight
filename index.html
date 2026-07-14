@@ -1249,6 +1249,7 @@
   let pauseButtonBounds = null;
   let muteButtonBounds = null;
   let resumeButtonBounds = null;
+  let abandonButtonBounds = null;
 
   const keys = { up: false, down: false, left: false, right: false };
 
@@ -1453,6 +1454,13 @@
         x >= resumeButtonBounds.x && x <= resumeButtonBounds.x + resumeButtonBounds.w &&
         y >= resumeButtonBounds.y && y <= resumeButtonBounds.y + resumeButtonBounds.h) {
       paused = false;
+      return;
+    }
+    if (abandonButtonBounds &&
+        x >= abandonButtonBounds.x && x <= abandonButtonBounds.x + abandonButtonBounds.w &&
+        y >= abandonButtonBounds.y && y <= abandonButtonBounds.y + abandonButtonBounds.h) {
+      paused = false;
+      killPlayer('abandon');
       return;
     }
   }
@@ -1758,7 +1766,7 @@
     // so a lit-galaxy loss there gets one generic unattributed line, and a
     // dark-galaxy death gets no line from him at all -- just the plain
     // "THE DARK HOLDS." Galaxy 4 on: a unique attributed line per galaxy.
-    if (endlessMode) {
+    if (cause === 'abandon' || endlessMode) {
       deathKekuLine = null;
     } else if (!lostAHeldGalaxy) {
       deathKekuLine = { text: KEKU_DEATH_DARK, attributed: false, isDarkLine: true };
@@ -2744,9 +2752,22 @@
       ctx.strokeRect(resumeButtonBounds.x, resumeButtonBounds.y, menuBtnW, menuBtnH);
       ctx.fillStyle = '#fff';
       ctx.fillText('RESUME', canvas.width / 2, resumeButtonBounds.y + menuBtnH / 2 + 5);
+
+      // Damage-red, not the neutral white used above -- this one costs you
+      // the run (and a held galaxy, same as dying), so it reads as the
+      // destructive option rather than a peer of MUTE/RESUME.
+      abandonButtonBounds = { x: menuBtnX, y: resumeButtonBounds.y + menuBtnH + 16, w: menuBtnW, h: menuBtnH };
+      ctx.fillStyle = 'rgba(255, 45, 85, 0.15)';
+      ctx.fillRect(abandonButtonBounds.x, abandonButtonBounds.y, menuBtnW, menuBtnH);
+      ctx.strokeStyle = 'rgba(255, 45, 85, 0.6)';
+      ctx.strokeRect(abandonButtonBounds.x, abandonButtonBounds.y, menuBtnW, menuBtnH);
+      ctx.fillStyle = 'rgba(255, 200, 200, 0.9)';
+      ctx.fillText('ABANDON RUN', canvas.width / 2, abandonButtonBounds.y + menuBtnH / 2 + 5);
+      ctx.fillStyle = '#fff';
     } else {
       muteButtonBounds = null;
       resumeButtonBounds = null;
+      abandonButtonBounds = null;
     }
 
     if (paused && draftOptions.length > 0) {
@@ -2886,49 +2907,56 @@
   }
 
   function drawDead() {
+    const abandoned = deathCause === 'abandon';
+
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
     ctx.font = 'bold 32px sans-serif';
-    ctx.fillText('THE DARK TAKES YOU', canvas.width / 2, canvas.height / 2);
+    ctx.fillText(abandoned ? 'RUN ABANDONED' : 'THE DARK TAKES YOU', canvas.width / 2, canvas.height / 2);
 
     ctx.font = '16px sans-serif';
-    const killer = deathCause === 'boss' ? NAMES.boss : NAMES.enemy;
-    ctx.fillText('SLAIN BY ' + killer.toUpperCase(), canvas.width / 2, canvas.height / 2 + 26);
+    // Abandoning isn't being killed -- skip the "SLAIN BY" line and let
+    // everything below sit one slot higher, in the space it would've used.
+    const base = abandoned ? 0 : 26;
+    if (!abandoned) {
+      const killer = deathCause === 'boss' ? NAMES.boss : NAMES.enemy;
+      ctx.fillText('SLAIN BY ' + killer.toUpperCase(), canvas.width / 2, canvas.height / 2 + base);
+    }
 
     if (endlessMode) {
-      ctx.fillText('DEPTH REACHED: ' + endlessDepth, canvas.width / 2, canvas.height / 2 + 50);
-      ctx.fillText('BEST DEPTH: ' + bestDepth, canvas.width / 2, canvas.height / 2 + 74);
-      ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 + 98);
-      ctx.fillText('Tap to return to the map', canvas.width / 2, canvas.height / 2 + 122);
+      ctx.fillText('DEPTH REACHED: ' + endlessDepth, canvas.width / 2, canvas.height / 2 + base + 24);
+      ctx.fillText('BEST DEPTH: ' + bestDepth, canvas.width / 2, canvas.height / 2 + base + 48);
+      ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 + base + 72);
+      ctx.fillText('Tap to return to the map', canvas.width / 2, canvas.height / 2 + base + 96);
     } else {
-      ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 + 50);
-      ctx.fillText('Tap to restart', canvas.width / 2, canvas.height / 2 + 74);
+      ctx.fillText('LIGHT RECOVERED: ' + bankedMotes.toLocaleString(), canvas.width / 2, canvas.height / 2 + base + 24);
+      ctx.fillText('Tap to restart', canvas.width / 2, canvas.height / 2 + base + 48);
 
       if (deathKekuLine) {
         if (deathKekuLine.isDarkLine) {
           ctx.textAlign = 'center';
           ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
           ctx.font = '14px sans-serif';
-          ctx.fillText(deathKekuLine.text, canvas.width / 2, canvas.height / 2 + 108);
+          ctx.fillText(deathKekuLine.text, canvas.width / 2, canvas.height / 2 + base + 82);
           ctx.fillStyle = '#fff';
         } else if (deathKekuLine.attributed) {
           ctx.textAlign = 'center';
           ctx.font = 'bold 12px sans-serif';
           ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-          ctx.fillText('KEKU', canvas.width / 2, canvas.height / 2 + 108);
+          ctx.fillText('KEKU', canvas.width / 2, canvas.height / 2 + base + 82);
 
           ctx.font = '14px sans-serif';
           ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
           const maxW = Math.min(360, canvas.width - 60);
           const lines = wrapTextLines('"' + deathKekuLine.text + '"', maxW);
-          let ly = canvas.height / 2 + 128;
+          let ly = canvas.height / 2 + base + 102;
           for (const line of lines) {
             ctx.fillText(line, canvas.width / 2, ly);
             ly += 18;
           }
           ctx.fillStyle = '#fff';
         } else {
-          drawOverheardLine(deathKekuLine.text, canvas.height / 2 + 108);
+          drawOverheardLine(deathKekuLine.text, canvas.height / 2 + base + 82);
         }
       }
     }
