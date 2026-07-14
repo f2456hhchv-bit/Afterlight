@@ -130,7 +130,7 @@
   // needed here (unlike the old SHIP_SCALE approach).
   const SHIP_STROKE_PX = { hollow: 1.5, lance: 2.5, anchor: 4, warden: 3 };
 
-  const DEBUG = true;
+  const DEBUG = false;
 
   const TUNE = {
     SPEED: 159.9,
@@ -230,6 +230,12 @@
     SFX_MASTER_GAIN: 0.5,            // overall mixer level — everything else is relative to this
     MUSIC_VOLUME: 0.7,               // settings slider -- scales the drone bus only
     SFX_VOLUME: 1,                   // settings slider -- scales every one-shot sound only
+    // Block 30 -- settings screen. 0/1 flags reuse the TUNE-override
+    // persistence mechanism instead of new save-schema plumbing.
+    HAPTICS_ENABLED: 1,
+    SHAKE_INTENSITY: 1,              // multiplies shakeStrength at the point of use; 0 must be allowed
+    COLORBLIND_MODE: 0,              // swaps DAMAGE_COLOR (and only DAMAGE_COLOR) for a blue that isn't confusable with any galaxy hue
+    TITLE_DRIFT_SPEED: 14,           // world-units/sec the title screen's corridor auto-scrolls at
     SFX_FIRE_GAIN: 0.05,
     SFX_HIT_GAIN: 0.08,
     SFX_KILL_GAIN: 0.12,
@@ -1039,8 +1045,16 @@
   // Damage feedback -- one colour, used ONLY for "you just took/dealt a hit,"
   // never for anything's normal state. White is sacred (only the Warden and
   // Keku, in-run and on the map, are ever white), so this is deliberately
-  // not white either.
-  const DAMAGE_COLOR = '#ff2d55';
+  // not white either. Block 30 -- colourblind mode swaps this (and ONLY
+  // this) for a blue that isn't confusable with any of the ten galaxy hues,
+  // since red is also Fire's hue and the whole point of this colour is that
+  // it must never read as an element.
+  function damageColorRgb() {
+    return TUNE.COLORBLIND_MODE === 1 ? '61, 168, 255' : '255, 45, 85';
+  }
+  function damageColor() {
+    return `rgb(${damageColorRgb()})`;
+  }
 
   // Which galaxy's hue is "live" right now, for the few spots (like impact
   // sparks) that need a plain r,g,b triplet rather than an hsl() string.
@@ -1275,7 +1289,100 @@
     return `hsla(${h}, ${s}%, ${l}%, ${a})`;
   }
 
-  const DEFAULT_GALAXY_NAMES = ['Edge', 'Cinder Reach', 'Hollow Drift', 'Ashfall Void', 'Pale March', 'Ember Rift', 'Quiet Expanse', 'Dusk Haven', 'Last Light', 'Centre'];
+  // Block 30 -- corridor + Keku's vanishing point, factored out of drawMap()
+  // so the title screen can show the same background behind its own,
+  // separately-driven scroll position (titleScroll) without duplicating the
+  // perspective math. clipTop lets the map clip below its header while the
+  // title screen uses the full canvas (clipTop 0).
+  function drawCorridorBackground(scroll, clipTop) {
+    const lastIndex = GALAXY_DATA.length - 1;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, clipTop, canvas.width, canvas.height - clipTop);
+    ctx.clip();
+    ctx.globalCompositeOperation = 'lighter';
+
+    for (let i = lastIndex; i >= 0; i--) {
+      const p = projectGalaxy(i, scroll);
+      if (!p) continue;
+
+      const data = GALAXY_DATA[i];
+      const lit = galaxies[i] === 1;
+      const power = lit ? 1 : 0.10;
+
+      if (p.glow > 0.5) {
+        const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.glow);
+        grd.addColorStop(0, mapHsla(data.hue, 90, 72, 0.85 * power));
+        grd.addColorStop(0.18, mapHsla(data.hue, 88, 58, 0.42 * power));
+        grd.addColorStop(0.55, mapHsla(data.hue, 85, 45, 0.10 * power));
+        grd.addColorStop(1, mapHsla(data.hue, 80, 40, 0));
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.glow, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (p.core > 0.4) {
+        ctx.fillStyle = lit ? mapHsla(data.hue, 95, 66, 1) : mapHsla(data.hue, 60, 30, 0.5);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.core * (lit ? 0.42 : 0.30), 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (!lit && p.core > 3) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = mapHsla(data.hue, 55, 40, 0.55);
+        ctx.lineWidth = Math.max(1, 1.6 * p.s);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.core * 0.55, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalCompositeOperation = 'lighter';
+      }
+    }
+
+    // Keku: an eleventh object beyond galaxy 10, at the true vanishing point.
+    // Not a galaxy — no lit/dark state, no drift, not in the tap-select loop.
+    // His depth never gets close enough to be more than a hard point.
+    const kekuZ = TUNE.CORRIDOR_NEAR_Z + TUNE.KEKU_WORLD_Z - scroll;
+    let kekuScreen = null;
+    if (kekuZ > 40) {
+      const kekuScale = TUNE.CORRIDOR_FOV / kekuZ;
+      const kx = canvas.width / 2;
+      const ky = canvas.height / 2;
+      const kGlow = TUNE.CORRIDOR_GLOW * kekuScale;
+      const kCore = TUNE.CORRIDOR_CORE * kekuScale;
+      if (kGlow > 0.5) {
+        const grd = ctx.createRadialGradient(kx, ky, 0, kx, ky, kGlow);
+        grd.addColorStop(0, 'rgba(255,255,255,0.95)');
+        grd.addColorStop(0.12, 'rgba(240,244,255,0.55)');
+        grd.addColorStop(0.45, 'rgba(180,200,255,0.14)');
+        grd.addColorStop(1, 'rgba(120,150,255,0)');
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.arc(kx, ky, kGlow, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (kCore > 0.4) {
+        ctx.fillStyle = 'rgba(255,255,255,1)';
+        ctx.beginPath();
+        ctx.arc(kx, ky, kCore * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      kekuScreen = { x: kx, y: ky, core: kCore };
+    }
+
+    ctx.restore();
+
+    if (kekuScreen) {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fff';
+      ctx.font = '600 12px ui-monospace, monospace';
+      ctx.fillText('KEKU', kekuScreen.x, kekuScreen.y + Math.max(kekuScreen.core * 0.55, 10) + 16);
+    }
+  }
+
+  const DEFAULT_GALAXY_NAMES = ['Cinder Reach', 'Double Noon', 'The Strict Light', 'The Slow Ruin', 'The Clear Reach', 'The Last Warmth', 'The Overexposed', 'The Long Fall', 'Iron Hold', 'The Long Drift'];
 
   function defaultNames() {
     return {
@@ -1558,6 +1665,37 @@
     } catch (e) {}
   }
 
+  // Block 30 -- title screen's CONTINUE (only shown once real progress
+  // exists) and the settings screen's wipe. wipeSaveData() is the single
+  // source of truth for a full reset -- the debug panel's old inline wipe
+  // handler missed several fields (shop, kekuSeen, bestDepth,
+  // fragmentsKilled, openingSeen, galaxyCardsSeen), leaving them stale in
+  // memory to be written straight back by the saveBank() at the end.
+  // Not a raw localStorage.getItem(SAVE_KEY) check -- a decay-check side
+  // effect elsewhere writes a fresh default save on every single boot
+  // regardless of whether the player has ever done anything, so the key's
+  // mere presence can't distinguish "never played" from "just loaded."
+  // openingSeen is the flag that actually means "this player has begun."
+  function hasSave() {
+    return openingSeen === true;
+  }
+
+  function wipeSaveData() {
+    try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+    bankedMotes = 0;
+    galaxies = new Array(10).fill(0);
+    deepestHeld = 0;
+    NAMES = defaultNames();
+    shop = defaultShop();
+    kekuSeen = defaultKekuSeen();
+    bestDepth = 0;
+    fragmentsKilled = 0;
+    openingSeen = false;
+    galaxyCardsSeen = defaultGalaxyCardsSeen();
+    decayedGalaxyIndex = -1;
+    saveBank();
+  }
+
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
 
@@ -1589,7 +1727,7 @@
   player.x = canvas.width / 2;
   player.y = canvas.height / 2;
 
-  const STATE = { MAP: 'map', RUN: 'run', DEAD: 'dead', VICTORY: 'victory', LEAP: 'leap', SHOP: 'shop', OPENING: 'opening' };
+  const STATE = { MAP: 'map', RUN: 'run', DEAD: 'dead', VICTORY: 'victory', LEAP: 'leap', SHOP: 'shop', OPENING: 'opening', TITLE: 'title', SETTINGS: 'settings' };
   const LEAP_DURATION_MS = 1500;
   let leapFrom = 0;
   let leapTo = 0;
@@ -1977,6 +2115,13 @@
 
   const MAP_TAP_THRESHOLD = 8;   // px of movement below which a touch counts as a tap, not a scroll
 
+  // Block 30 -- title screen's own auto-scrolling corridor position. Separate
+  // from mapScroll (which is player-dragged and always resets via openMap())
+  // so idling on the title screen can never leak into the map's camera.
+  let titleScroll = 0;
+  let titleButtonBounds = [];
+  let settingsBounds = { sliders: [], toggles: [], buttons: [] };
+
   // The map always opens at the edge — galaxy 1, in the dark — every time.
   let mapScroll = 0;
   let mapScrollVelocity = 0;
@@ -1985,7 +2130,6 @@
   let mapDragStartY = 0;
   let mapDragLastY = 0;
   let mapDragMoved = 0;
-  let corridorDebugLogged = false;
 
   // Per-frame friction (not dt-scaled) — matches the reference exactly, which
   // ticks its momentum once per requestAnimationFrame call, same as this loop.
@@ -2102,7 +2246,6 @@
     mapScroll = 0;
     mapScrollVelocity = 0;
     selectedGalaxy = 0;
-    console.log('camZ', mapScroll, 'MAX_Z', mapMaxZ());
   }
 
   // Shared by the map's DESCEND button and the opening screen's "TAKE THE
@@ -2247,6 +2390,64 @@
     }
   }
 
+  // Block 30 -- title screen.
+  function handleTitleTap(x, y) {
+    for (const b of titleButtonBounds) {
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+        if (b.action === 'continue') {
+          if (openingSeen) openMap(); else state = STATE.OPENING;
+        } else if (b.action === 'newgame') {
+          if (confirm('Start a new game? This wipes your save.')) {
+            wipeSaveData();
+            state = STATE.OPENING;
+          }
+        } else if (b.action === 'settings') {
+          state = STATE.SETTINGS;
+        }
+        return;
+      }
+    }
+  }
+
+  // Block 30 -- settings screen, reached from the title screen only. BACK
+  // always returns there (nowhere else opens Settings yet).
+  function handleSettingsTap(x, y) {
+    for (const b of settingsBounds.sliders) {
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+        TUNE[b.key] = Math.max(0, Math.min(b.max, ((x - b.x) / b.w) * b.max));
+        saveTuneOverrides();
+        return;
+      }
+    }
+    for (const b of settingsBounds.toggles) {
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+        TUNE[b.key] = TUNE[b.key] === 1 ? 0 : 1;
+        saveTuneOverrides();
+        return;
+      }
+    }
+    for (const b of settingsBounds.buttons) {
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+        if (b.action === 'export') {
+          exportSave();
+        } else if (b.action === 'import') {
+          importSave();
+        } else if (b.action === 'wipe') {
+          if (confirm('Wipe your save? This cannot be undone.')) {
+            if (confirm('Are you absolutely sure? All progress will be lost permanently.')) {
+              wipeSaveData();
+              saveMessage = 'Save wiped';
+              saveMessageUntil = currentTime + 2000;
+            }
+          }
+        } else if (b.action === 'back') {
+          state = STATE.TITLE;
+        }
+        return;
+      }
+    }
+  }
+
   function pointerDown(x, y) {
     unlockAudio();
     if (galaxyCardActive) {
@@ -2260,6 +2461,14 @@
     }
     if (kekuMessageActive) {
       kekuMessageActive = false;
+      return;
+    }
+    if (state === STATE.TITLE) {
+      handleTitleTap(x, y);
+      return;
+    }
+    if (state === STATE.SETTINGS) {
+      handleSettingsTap(x, y);
       return;
     }
     if (state === STATE.OPENING) {
@@ -3004,7 +3213,7 @@
       const burstSpeed = 60 + Math.random() * 80;
       spawnParticle(x, y, Math.cos(angle) * burstSpeed, Math.sin(angle) * burstSpeed, TUNE.DEATH_BURST_MS, burstColor, 2.5);
     }
-    if (navigator.vibrate) navigator.vibrate(10);
+    if (TUNE.HAPTICS_ENABLED === 1 && navigator.vibrate) navigator.vibrate(10);
   }
 
   // Fires once, at the moment `entity` dies. `viaChain` is only true for a
@@ -3613,7 +3822,7 @@
               spawnParticle(closest.x, closest.y, Math.cos(angle) * burstSpeed, Math.sin(angle) * burstSpeed, TUNE.DEATH_BURST_MS, burstColor, 2.5);
             }
 
-            if (navigator.vibrate) navigator.vibrate(10);
+            if (TUNE.HAPTICS_ENABLED === 1 && navigator.vibrate) navigator.vibrate(10);
 
             // Block 25 -- "applies to EVERY enemy in that galaxy, including
             // the boss": this runs before the boss-transition branch below,
@@ -3692,6 +3901,14 @@
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    if (state === STATE.TITLE) {
+      drawTitle();
+      return;
+    }
+    if (state === STATE.SETTINGS) {
+      drawSettings();
+      return;
+    }
     if (state === STATE.OPENING) {
       drawOpening();
       return;
@@ -3788,8 +4005,9 @@
     const cy = canvas.height / 2;
     const outerR = Math.hypot(cx, cy);
     const grd = ctx.createRadialGradient(cx, cy, outerR * TUNE.VIGNETTE_INNER_RADIUS_FRAC, cx, cy, outerR);
-    grd.addColorStop(0, 'rgba(255, 45, 85, 0)');       // DAMAGE_COLOR, transparent at centre
-    grd.addColorStop(1, `rgba(255, 45, 85, ${alpha.toFixed(3)})`);
+    const dmgRgb = damageColorRgb();
+    grd.addColorStop(0, `rgba(${dmgRgb}, 0)`);
+    grd.addColorStop(1, `rgba(${dmgRgb}, ${alpha.toFixed(3)})`);
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
@@ -3806,8 +4024,8 @@
     // the canvas to black before dispatching here; nothing goes behind the
     // entities, ever.
 
-    const shakeX = (Math.random() * 2 - 1) * shakeStrength;
-    const shakeY = (Math.random() * 2 - 1) * shakeStrength;
+    const shakeX = (Math.random() * 2 - 1) * shakeStrength * TUNE.SHAKE_INTENSITY;
+    const shakeY = (Math.random() * 2 - 1) * shakeStrength * TUNE.SHAKE_INTENSITY;
     ctx.save();
     ctx.translate(shakeX, shakeY);
     // Neon wireframe: everything from here to the matching ctx.restore() is
@@ -4222,7 +4440,7 @@
       ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
       ctx.fillRect(barX, barY, barWidth, barHeight);
 
-      ctx.fillStyle = DAMAGE_COLOR;
+      ctx.fillStyle = damageColor();
       ctx.fillRect(barX, barY, barWidth * (player.hp / player.maxHp), barHeight);
 
       ctx.fillStyle = '#fff';
@@ -4687,20 +4905,172 @@
     ctx.textAlign = 'left';
   }
 
+  // Block 30 -- the real title screen. Corridor drifts on its own schedule
+  // (titleScroll, driven in loop()) behind AFTERLIGHT and Keku's point, dimmed
+  // just enough for the buttons to stay legible over it.
+  function drawTitle() {
+    drawCorridorBackground(titleScroll, 0);
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 40px sans-serif';
+    ctx.fillText('AFTERLIGHT', canvas.width / 2, canvas.height / 2 - 150);
+
+    const btnW = 220;
+    const btnH = 44;
+    const btnGap = 14;
+    const btnX = canvas.width / 2 - btnW / 2;
+
+    const entries = [];
+    if (hasSave()) entries.push(['CONTINUE', 'continue']);
+    entries.push(['NEW GAME', 'newgame']);
+    entries.push(['SETTINGS', 'settings']);
+
+    titleButtonBounds = [];
+    let by = canvas.height / 2 - 30;
+    for (const [label, action] of entries) {
+      const bounds = { x: btnX, y: by, w: btnW, h: btnH, action };
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.fillRect(bounds.x, bounds.y, btnW, btnH);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bounds.x, bounds.y, btnW, btnH);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText(label, canvas.width / 2, by + btnH / 2 + 5);
+      titleButtonBounds.push(bounds);
+      by += btnH + btnGap;
+    }
+    ctx.textAlign = 'left';
+  }
+
+  // Block 30 -- settings screen. Master/Music/SFX mirror the pause menu's
+  // sliders (same TUNE keys, same tap-anywhere-on-the-bar interaction) plus
+  // haptics/shake/colourblind toggles and Export/Import promoted here as
+  // real, non-debug features. Layout is a single top-aligned column, since
+  // this screen carries far more controls than the pause menu does.
+  function drawSettings() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText('SETTINGS', canvas.width / 2, 50);
+
+    const colW = Math.min(280, canvas.width - 60);
+    const colX = canvas.width / 2 - colW / 2;
+    let y = 96;
+
+    settingsBounds.sliders = [];
+    settingsBounds.toggles = [];
+    settingsBounds.buttons = [];
+
+    ctx.textAlign = 'left';
+    const sliderRows = [
+      ['MASTER VOLUME', 'SFX_MASTER_GAIN', 1],
+      ['MUSIC VOLUME', 'MUSIC_VOLUME', 1],
+      ['SFX VOLUME', 'SFX_VOLUME', 1],
+      ['SCREEN SHAKE', 'SHAKE_INTENSITY', 1]
+    ];
+    const sliderH = 10;
+    for (const [label, key, max] of sliderRows) {
+      ctx.font = '12px sans-serif';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.fillText(label, colX, y);
+      y += 8;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.fillRect(colX, y, colW, sliderH);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.fillRect(colX, y, colW * Math.max(0, Math.min(1, TUNE[key] / max)), sliderH);
+      settingsBounds.sliders.push({ x: colX, y: y - 10, w: colW, h: sliderH + 20, key, max });
+      y += sliderH + 26;
+    }
+
+    const toggleRows = [
+      ['HAPTICS', 'HAPTICS_ENABLED'],
+      ['COLOURBLIND MODE', 'COLORBLIND_MODE']
+    ];
+    const toggleW = 50;
+    const toggleH = 26;
+    for (const [label, key] of toggleRows) {
+      const on = TUNE[key] === 1;
+      ctx.font = '13px sans-serif';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.fillText(label, colX, y + 18);
+      const toggleX = colX + colW - toggleW;
+      ctx.fillStyle = on ? 'rgba(120, 220, 160, 0.5)' : 'rgba(255, 255, 255, 0.12)';
+      ctx.fillRect(toggleX, y, toggleW, toggleH);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.strokeRect(toggleX, y, toggleW, toggleH);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(on ? 'ON' : 'OFF', toggleX + toggleW / 2, y + toggleH / 2 + 4);
+      ctx.textAlign = 'left';
+      settingsBounds.toggles.push({ x: toggleX, y, w: toggleW, h: toggleH, key });
+      y += toggleH + 20;
+    }
+
+    const smallBtnW = (colW - 10) / 2;
+    const smallBtnH = 30;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.fillRect(colX, y, smallBtnW, smallBtnH);
+    ctx.fillRect(colX + smallBtnW + 10, y, smallBtnW, smallBtnH);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.strokeRect(colX, y, smallBtnW, smallBtnH);
+    ctx.strokeRect(colX + smallBtnW + 10, y, smallBtnW, smallBtnH);
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('EXPORT SAVE', colX + smallBtnW / 2, y + smallBtnH / 2 + 4);
+    ctx.fillText('IMPORT SAVE', colX + smallBtnW + 10 + smallBtnW / 2, y + smallBtnH / 2 + 4);
+    ctx.textAlign = 'left';
+    settingsBounds.buttons.push({ x: colX, y, w: smallBtnW, h: smallBtnH, action: 'export' });
+    settingsBounds.buttons.push({ x: colX + smallBtnW + 10, y, w: smallBtnW, h: smallBtnH, action: 'import' });
+    y += smallBtnH + 14;
+
+    if (currentTime < saveMessageUntil) {
+      ctx.textAlign = 'center';
+      ctx.font = '11px sans-serif';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.fillText(saveMessage, canvas.width / 2, y);
+      ctx.textAlign = 'left';
+      y += 20;
+    }
+
+    // Danger family, same as ABANDON RUN -- this one costs you everything.
+    const wipeH = 40;
+    ctx.fillStyle = 'rgba(255, 45, 85, 0.15)';
+    ctx.fillRect(colX, y, colW, wipeH);
+    ctx.strokeStyle = 'rgba(255, 45, 85, 0.6)';
+    ctx.strokeRect(colX, y, colW, wipeH);
+    ctx.fillStyle = 'rgba(255, 200, 200, 0.9)';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('WIPE SAVE', canvas.width / 2, y + wipeH / 2 + 5);
+    ctx.textAlign = 'left';
+    settingsBounds.buttons.push({ x: colX, y, w: colW, h: wipeH, action: 'wipe' });
+    y += wipeH + 20;
+
+    const backH = 40;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fillRect(colX, y, colW, backH);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.strokeRect(colX, y, colW, backH);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('BACK', canvas.width / 2, y + backH / 2 + 5);
+    ctx.textAlign = 'left';
+    settingsBounds.buttons.push({ x: colX, y, w: colW, h: backH, action: 'back' });
+  }
+
   function drawMap() {
     const HEADER_HEIGHT = 216;
-
-    // TEMPORARY diagnostic — logs once so we can see what's actually running in
-    // this browser, including any TUNE overrides. Safe to remove once confirmed.
-    if (!corridorDebugLogged) {
-      corridorDebugLogged = true;
-      console.log('CORRIDOR_FOV=' + TUNE.CORRIDOR_FOV, 'CORRIDOR_NEAR_Z=' + TUNE.CORRIDOR_NEAR_Z, 'CORRIDOR_SPACING=' + TUNE.CORRIDOR_SPACING, 'mapScroll=' + mapScroll);
-      for (let i = 0; i < GALAXY_DATA.length; i++) {
-        const p = projectGalaxy(i, mapScroll);
-        const z = TUNE.CORRIDOR_NEAR_Z + i * TUNE.CORRIDOR_SPACING - mapScroll;
-        console.log('i=' + i, 'z=' + z, 'scale=' + (p ? p.s.toFixed(3) : 'CULLED'));
-      }
-    }
 
     // The void is always pure black. Any light on screen is emitted by the
     // galaxies themselves via additive glows below — never a background fill.
@@ -4787,91 +5157,7 @@
     }
 
     // ---- The corridor. Ported from the reference — do not reinterpret. ----
-    const lastIndex = GALAXY_DATA.length - 1;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, HEADER_HEIGHT, canvas.width, canvas.height - HEADER_HEIGHT);
-    ctx.clip();
-    ctx.globalCompositeOperation = 'lighter';
-
-    for (let i = lastIndex; i >= 0; i--) {
-      const p = projectGalaxy(i, mapScroll);
-      if (!p) continue;
-
-      const data = GALAXY_DATA[i];
-      const lit = galaxies[i] === 1;
-      const power = lit ? 1 : 0.10;
-
-      if (p.glow > 0.5) {
-        const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.glow);
-        grd.addColorStop(0, mapHsla(data.hue, 90, 72, 0.85 * power));
-        grd.addColorStop(0.18, mapHsla(data.hue, 88, 58, 0.42 * power));
-        grd.addColorStop(0.55, mapHsla(data.hue, 85, 45, 0.10 * power));
-        grd.addColorStop(1, mapHsla(data.hue, 80, 40, 0));
-        ctx.fillStyle = grd;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.glow, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      if (p.core > 0.4) {
-        ctx.fillStyle = lit ? mapHsla(data.hue, 95, 66, 1) : mapHsla(data.hue, 60, 30, 0.5);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.core * (lit ? 0.42 : 0.30), 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      if (!lit && p.core > 3) {
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.strokeStyle = mapHsla(data.hue, 55, 40, 0.55);
-        ctx.lineWidth = Math.max(1, 1.6 * p.s);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.core * 0.55, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.globalCompositeOperation = 'lighter';
-      }
-    }
-
-    // Keku: an eleventh object beyond galaxy 10, at the true vanishing point.
-    // Not a galaxy — no lit/dark state, no drift, not in the tap-select loop
-    // below. His depth never gets close enough to be more than a hard point.
-    const kekuZ = TUNE.CORRIDOR_NEAR_Z + TUNE.KEKU_WORLD_Z - mapScroll;
-    let kekuScreen = null;
-    if (kekuZ > 40) {
-      const kekuScale = TUNE.CORRIDOR_FOV / kekuZ;
-      const kx = canvas.width / 2;
-      const ky = canvas.height / 2;
-      const kGlow = TUNE.CORRIDOR_GLOW * kekuScale;
-      const kCore = TUNE.CORRIDOR_CORE * kekuScale;
-      if (kGlow > 0.5) {
-        const grd = ctx.createRadialGradient(kx, ky, 0, kx, ky, kGlow);
-        grd.addColorStop(0, 'rgba(255,255,255,0.95)');
-        grd.addColorStop(0.12, 'rgba(240,244,255,0.55)');
-        grd.addColorStop(0.45, 'rgba(180,200,255,0.14)');
-        grd.addColorStop(1, 'rgba(120,150,255,0)');
-        ctx.fillStyle = grd;
-        ctx.beginPath();
-        ctx.arc(kx, ky, kGlow, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      if (kCore > 0.4) {
-        ctx.fillStyle = 'rgba(255,255,255,1)';
-        ctx.beginPath();
-        ctx.arc(kx, ky, kCore * 0.55, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      kekuScreen = { x: kx, y: ky, core: kCore };
-    }
-
-    ctx.restore();
-
-    if (kekuScreen) {
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#fff';
-      ctx.font = '600 12px ui-monospace, monospace';
-      ctx.fillText('KEKU', kekuScreen.x, kekuScreen.y + Math.max(kekuScreen.core * 0.55, 10) + 16);
-    }
+    drawCorridorBackground(mapScroll, HEADER_HEIGHT);
 
     const sp = projectGalaxy(selectedGalaxy, mapScroll);
     if (sp && sp.core > 2) {
@@ -4942,6 +5228,9 @@
       if (state === STATE.MAP && !debugPaused) {
         updateMapScroll();
       }
+      if (state === STATE.TITLE) {
+        titleScroll = (titleScroll + TUNE.TITLE_DRIFT_SPEED * dt) % mapMaxZ();
+      }
       syncAudioGain();
       draw();
       requestAnimationFrame(loop);
@@ -4953,11 +5242,10 @@
     }
   }
 
-  if (openingSeen) {
-    openMap();
-  } else {
-    state = STATE.OPENING;
-  }
+  // Block 30 -- the title screen is now always the first thing shown, every
+  // load. CONTINUE/NEW GAME/SETTINGS decide from there whether openingSeen
+  // sends the player into the opening text or straight back to the map.
+  state = STATE.TITLE;
   requestAnimationFrame(loop);
 
   function setupDebugPanel() {
@@ -5185,13 +5473,7 @@
     wipeBtn.style.cssText = 'width:100%; padding:6px; margin-bottom:6px; background:rgba(255,80,80,0.3); color:#fff; border:none;';
     wipeBtn.onclick = () => {
       if (!confirm('Wipe save? This cannot be undone.')) return;
-      try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
-      bankedMotes = 0;
-      galaxies = new Array(10).fill(0);
-      deepestHeld = 0;
-      NAMES = defaultNames();
-      decayedGalaxyIndex = -1;
-      saveBank();
+      wipeSaveData();
       refreshNameInputs();
       saveMessage = 'Save wiped';
       saveMessageUntil = currentTime + 2000;
