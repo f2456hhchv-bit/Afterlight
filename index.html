@@ -48,26 +48,47 @@
 
   try {
 
+  // Explicit sizes in px, set by hand -- the whole reason a Hollow, a
+  // Lance and an Anchor (and the Warden) must never be mistaken for each
+  // other at a glance. Each ship's vertex array below is written as
+  // SIZE * ratio per point, so changing one of these four numbers rescales
+  // that whole ship with no other edit needed. Warden sits deliberately
+  // between Hollow and Anchor -- bigger than the swarm, smaller than the
+  // wall, a modest ship in a big space rather than a monument.
+  const HOLLOW_SIZE = 14;   // radius in px
+  const LANCE_SIZE = 20;
+  const ANCHOR_SIZE = 32;
+  const WARDEN_SIZE = 24;   // bigger than a Hollow, SMALLER than an Anchor
+
   // Ship silhouettes -- plain editable vertex lists, kept at the very top of
   // the file on purpose. All four are local space, nose/facing on the +X
-  // axis, drawn with ctx.translate/rotate already applied. Straight edges
-  // only -- built objects (Warden/Lance/Anchor) or a hunched organic shape
-  // (Hollow), never a symmetric star. Each is deliberately a different
-  // silhouette family so no two are confusable at a glance in a crowd:
+  // axis, drawn with ctx.translate/rotate already applied, at their final
+  // on-screen size already (no extra ctx.scale at the draw call). Straight
+  // edges only -- built objects (Warden/Lance/Anchor) or a hunched organic
+  // shape (Hollow), never a symmetric star. Each is deliberately a
+  // different silhouette family so no two are confusable at a glance:
   //   WARDEN -- long swept delta, one pointed nose, longer than wide.
   //   HOLLOW -- small hunched mouth with a concave bite, wider than long.
   //   LANCE  -- needle, arrowhead front + thin trailing spike, very long.
   //   ANCHOR -- broad angular shield, wider than long, blunt flat prow.
 
-  // THE WARDEN. One sharp nose far out front, swept delta wings, two
-  // thruster nacelle bumps at the REAR ONLY (points 5-6 and 11-12) either
-  // side of a notch cut between them (points 7-9). Bilateral (top/bottom)
-  // symmetry only -- never radial, so it can't read as a diamond or star.
-  // Farthest vertex (the nose, 22 units out) is ~1.8x the Hollow's farthest
-  // vertex (~12.5 units).
+  // THE WARDEN. A single sharp nose (point 1) a full SIZE unit out --
+  // nothing else on the hull reaches nearly that far, so the nose alone
+  // makes the facing readable from across the screen. The widest points
+  // (4 and 14, the wingtips) sit well behind the nose, not right against
+  // it, so the silhouette reads as a long dart, not a squat arrowhead:
+  // overall it's roughly 2.4x longer (nose to nacelle) than it is wide
+  // (wingtip to wingtip). Two thruster nacelle bumps at the REAR ONLY
+  // (points 6-7 and 11-12) either side of a notch cut between them
+  // (points 8-9-10). Bilateral (top/bottom) symmetry only -- never
+  // radial, so it can't read as a diamond or star.
   const SHIP_WARDEN = [
-    [22, 0], [9, 4], [3, 7], [-4, 12], [-10, 8], [-12, 9], [-17, 7], [-17, 3],
-    [-12, 0], [-17, -3], [-17, -7], [-12, -9], [-10, -8], [-4, -12], [3, -7], [9, -4]
+    [WARDEN_SIZE * 1.0, 0], [WARDEN_SIZE * 0.35, WARDEN_SIZE * 0.125], [WARDEN_SIZE * 0.1, WARDEN_SIZE * 0.2],
+    [WARDEN_SIZE * -0.25, WARDEN_SIZE * 0.35], [WARDEN_SIZE * -0.4, WARDEN_SIZE * 0.225], [WARDEN_SIZE * -0.5, WARDEN_SIZE * 0.25],
+    [WARDEN_SIZE * -0.65, WARDEN_SIZE * 0.15], [WARDEN_SIZE * -0.65, WARDEN_SIZE * 0.05], [WARDEN_SIZE * -0.5, 0],
+    [WARDEN_SIZE * -0.65, WARDEN_SIZE * -0.05], [WARDEN_SIZE * -0.65, WARDEN_SIZE * -0.15], [WARDEN_SIZE * -0.5, WARDEN_SIZE * -0.25],
+    [WARDEN_SIZE * -0.4, WARDEN_SIZE * -0.225], [WARDEN_SIZE * -0.25, WARDEN_SIZE * -0.35], [WARDEN_SIZE * 0.1, WARDEN_SIZE * -0.2],
+    [WARDEN_SIZE * 0.35, WARDEN_SIZE * -0.125]
   ];
 
   // THE HOLLOW. A hunched little mouth, not a ship -- wider (side to side,
@@ -77,7 +98,10 @@
   // whatever it's facing. The rest of the body is an irregular, jagged
   // hunch, asymmetric enough front-to-back that it never reads as a star.
   const SHIP_HOLLOW = [
-    [6, 3], [1, 0], [6, -3], [2, -9], [-6, -11], [-9, -4], [-8, 0], [-9, 4], [-6, 11], [2, 9]
+    [HOLLOW_SIZE * 0.48, HOLLOW_SIZE * 0.24], [HOLLOW_SIZE * 0.08, 0], [HOLLOW_SIZE * 0.48, HOLLOW_SIZE * -0.24],
+    [HOLLOW_SIZE * 0.16, HOLLOW_SIZE * -0.72], [HOLLOW_SIZE * -0.48, HOLLOW_SIZE * -0.88], [HOLLOW_SIZE * -0.72, HOLLOW_SIZE * -0.32],
+    [HOLLOW_SIZE * -0.64, 0], [HOLLOW_SIZE * -0.72, HOLLOW_SIZE * 0.32], [HOLLOW_SIZE * -0.48, HOLLOW_SIZE * 0.88],
+    [HOLLOW_SIZE * 0.16, HOLLOW_SIZE * 0.72]
   ];
 
   // THE LANCE. An arrowhead at the very front (points 1-2, with two small
@@ -85,7 +109,9 @@
   // long, thin spike that trails back far behind the head -- most of the
   // length is that bare spike, not the head.
   const SHIP_LANCE = [
-    [18, 0], [6, 5], [3, 1.2], [-20, 1], [-22, 0], [-20, -1], [3, -1.2], [6, -5]
+    [LANCE_SIZE * 0.82, 0], [LANCE_SIZE * 0.27, LANCE_SIZE * 0.23], [LANCE_SIZE * 0.14, LANCE_SIZE * 0.05],
+    [LANCE_SIZE * -0.91, LANCE_SIZE * 0.05], [LANCE_SIZE * -1.0, 0], [LANCE_SIZE * -0.91, LANCE_SIZE * -0.05],
+    [LANCE_SIZE * 0.14, LANCE_SIZE * -0.05], [LANCE_SIZE * 0.27, LANCE_SIZE * -0.23]
   ];
 
   // THE ANCHOR. A broad angular shield -- wider (Y) than it is long (X),
@@ -93,18 +119,14 @@
   // taper to a single point). Internal fracture lines are drawn separately
   // at the call site, not part of this outline.
   const SHIP_ANCHOR = [
-    [8, 6], [2, 14], [-10, 17], [-16, 6], [-16, -6], [-10, -17], [2, -14], [8, -6]
+    [ANCHOR_SIZE * 0.41, ANCHOR_SIZE * 0.30], [ANCHOR_SIZE * 0.10, ANCHOR_SIZE * 0.71], [ANCHOR_SIZE * -0.51, ANCHOR_SIZE * 0.86],
+    [ANCHOR_SIZE * -0.81, ANCHOR_SIZE * 0.30], [ANCHOR_SIZE * -0.81, ANCHOR_SIZE * -0.30], [ANCHOR_SIZE * -0.51, ANCHOR_SIZE * -0.86],
+    [ANCHOR_SIZE * 0.10, ANCHOR_SIZE * -0.71], [ANCHOR_SIZE * 0.41, ANCHOR_SIZE * -0.30]
   ];
 
-  // Tier hierarchy -- the whole reason a Hollow, a Lance and an Anchor must
-  // never be mistaken for each other at a glance. SCALE multiplies the raw
-  // vertex arrays above (applied via ctx.scale at the draw call, so the
-  // shapes themselves stay untouched and tunable on their own); STROKE_PX
-  // is the actual on-screen line width in pixels, independent of scale.
-  // Hollow is the 1.0x baseline -- everything else reads bigger/brighter
-  // against it, on purpose: Lance is a threat, Anchor is a wall, Warden
-  // is the player.
-  const SHIP_SCALE = { hollow: 1.0, lance: 1.6, anchor: 2.6, warden: 2.2 };
+  // STROKE_PX is the literal on-screen line width in pixels -- the vertex
+  // arrays above are already at final size, so no scale compensation is
+  // needed here (unlike the old SHIP_SCALE approach).
   const SHIP_STROKE_PX = { hollow: 1.5, lance: 2.5, anchor: 4, warden: 3 };
 
   const DEBUG = true;
@@ -2902,15 +2924,22 @@
     // Block 25 -- elemental ground hazards, drawn first so they read as
     // background: something you stand IN, underneath every entity, rather
     // than an entity themselves. Always the galaxy's own colour.
+    // A hot radial glow -- bright core falling off to fully transparent,
+    // not a flat filled disc -- pulsing slightly so it reads as active
+    // danger, not ground decoration. Must be the second most eye-catching
+    // thing on screen after the Warden, so alpha runs high.
     for (const pool of firePools) {
       const remain = Math.max(0, (pool.until - currentTime) / (TUNE.ELEMENT_FIRE_POOL_DURATION * 1000));
-      const pulse = 0.7 + 0.3 * Math.sin(currentTime / 90);
-      ctx.fillStyle = pal.bossAccent;
-      ctx.globalAlpha = 0.3 * remain * pulse;
+      const pulse = 0.85 + 0.15 * Math.sin(currentTime / 80);
+      const r = TUNE.ELEMENT_FIRE_POOL_RADIUS * pulse;
+      const grd = ctx.createRadialGradient(pool.x, pool.y, 0, pool.x, pool.y, r);
+      grd.addColorStop(0, `hsla(${pal.hue}, 100%, 88%, ${0.9 * remain})`);
+      grd.addColorStop(0.4, `hsla(${pal.hue}, 100%, 58%, ${0.65 * remain})`);
+      grd.addColorStop(1, `hsla(${pal.hue}, 100%, 45%, 0)`);
+      ctx.fillStyle = grd;
       ctx.beginPath();
-      ctx.arc(pool.x, pool.y, TUNE.ELEMENT_FIRE_POOL_RADIUS, 0, Math.PI * 2);
+      ctx.arc(pool.x, pool.y, r, 0, Math.PI * 2);
       ctx.fill();
-      ctx.globalAlpha = 1;
     }
     for (const seg of plasmaTrails) {
       const remain = Math.max(0, (seg.until - currentTime) / (TUNE.ELEMENT_PLASMA_TRAIL_DURATION * 1000));
@@ -2964,17 +2993,16 @@
 
       // Tier is shape, SIZE, stroke weight and brightness -- never a
       // different hue. Hollow/Lance/Anchor are all pal's ONE hue this
-      // galaxy; SHIP_SCALE/SHIP_STROKE_PX (top of file) are what make the
-      // tier hierarchy readable instantly instead of just by shape alone.
-      // Block 23: hit feedback is a flash to white, full stop.
+      // galaxy; the explicit *_SIZE constants and SHIP_STROKE_PX (top of
+      // file) are what make the tier hierarchy readable instantly instead
+      // of just by shape alone. Block 23: hit feedback is a flash to
+      // white, full stop.
       const flashing = currentTime < enemy.flashUntil;
       if (enemy.type === 'lance') {
-        ctx.scale(SHIP_SCALE.lance, SHIP_SCALE.lance);
-        strokeShipPath(SHIP_LANCE, flashing ? '#fff' : pal.tier2, SHIP_STROKE_PX.lance / SHIP_SCALE.lance);
+        strokeShipPath(SHIP_LANCE, flashing ? '#fff' : pal.tier2, SHIP_STROKE_PX.lance);
       } else if (enemy.type === 'anchor') {
         const color = flashing ? '#fff' : pal.tier3;
-        ctx.scale(SHIP_SCALE.anchor, SHIP_SCALE.anchor);
-        strokeShipPath(SHIP_ANCHOR, color, SHIP_STROKE_PX.anchor / SHIP_SCALE.anchor);
+        strokeShipPath(SHIP_ANCHOR, color, SHIP_STROKE_PX.anchor);
 
         // Fracture lines -- surface detail, not part of the outline. Same
         // colour as the hull (tier is brightness/size/stroke, never hue).
@@ -2982,24 +3010,23 @@
         ctx.globalAlpha = 0.5;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(4, 10);
-        ctx.lineTo(-6, 4);
-        ctx.lineTo(2, -8);
-        ctx.moveTo(-8, 12);
-        ctx.lineTo(-4, -2);
+        ctx.moveTo(ANCHOR_SIZE * 0.20, ANCHOR_SIZE * 0.51);
+        ctx.lineTo(ANCHOR_SIZE * -0.30, ANCHOR_SIZE * 0.20);
+        ctx.lineTo(ANCHOR_SIZE * 0.10, ANCHOR_SIZE * -0.41);
+        ctx.moveTo(ANCHOR_SIZE * -0.41, ANCHOR_SIZE * 0.61);
+        ctx.lineTo(ANCHOR_SIZE * -0.20, ANCHOR_SIZE * -0.10);
         ctx.stroke();
         ctx.globalAlpha = 1;
       } else {
         const color = flashing ? '#fff' : pal.tier1;
-        ctx.scale(SHIP_SCALE.hollow, SHIP_SCALE.hollow);
-        strokeShipPath(SHIP_HOLLOW, color, SHIP_STROKE_PX.hollow / SHIP_SCALE.hollow);
+        strokeShipPath(SHIP_HOLLOW, color, SHIP_STROKE_PX.hollow);
 
         // A small hot core -- same hue as the hull, additively stacked so
         // it reads as brighter without ever switching colour.
         ctx.fillStyle = color;
         ctx.globalAlpha = 0.8;
         ctx.beginPath();
-        ctx.arc(0, 0, 1.8, 0, Math.PI * 2);
+        ctx.arc(0, 0, HOLLOW_SIZE * 0.13, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = 1;
       }
@@ -3101,13 +3128,12 @@
     ctx.save();
     ctx.translate(player.x, player.y - TUNE.THUMB_OFFSET);
     ctx.rotate(player.angle);
-    ctx.scale(SHIP_SCALE.warden, SHIP_SCALE.warden);
 
     // Always white-hot, never flashed or recoloured -- player damage reads
     // through the screen-edge vignette instead (see below), not the ship.
-    // lineWidth is pre-divided by the scale above so the actual on-screen
-    // stroke is SHIP_STROKE_PX.warden regardless of how big the hull is.
-    strokeShipPath(SHIP_WARDEN, '#fff', SHIP_STROKE_PX.warden / SHIP_SCALE.warden);
+    // SHIP_WARDEN is already at final on-screen size, so no scale/divide
+    // dance -- SHIP_STROKE_PX.warden is the literal stroke width.
+    strokeShipPath(SHIP_WARDEN, '#fff', SHIP_STROKE_PX.warden);
 
     // Panel lines -- surface detail, not part of the outline. Three seams
     // running LENGTHWISE (nose to tail), not crossbars, so they read as
@@ -3116,12 +3142,12 @@
     ctx.globalAlpha = 0.5;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(20, 0);
-    ctx.lineTo(-12, 0);
-    ctx.moveTo(9, 4);
-    ctx.lineTo(-10, 8);
-    ctx.moveTo(9, -4);
-    ctx.lineTo(-10, -8);
+    ctx.moveTo(WARDEN_SIZE * 1.0, 0);
+    ctx.lineTo(WARDEN_SIZE * -0.5, 0);
+    ctx.moveTo(WARDEN_SIZE * 0.1, WARDEN_SIZE * 0.2);
+    ctx.lineTo(WARDEN_SIZE * -0.4, WARDEN_SIZE * 0.225);
+    ctx.moveTo(WARDEN_SIZE * 0.1, WARDEN_SIZE * -0.2);
+    ctx.lineTo(WARDEN_SIZE * -0.4, WARDEN_SIZE * -0.225);
     ctx.stroke();
     ctx.globalAlpha = 1;
 
