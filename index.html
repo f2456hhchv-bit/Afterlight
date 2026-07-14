@@ -96,6 +96,17 @@
     [8, 6], [2, 14], [-10, 17], [-16, 6], [-16, -6], [-10, -17], [2, -14], [8, -6]
   ];
 
+  // Tier hierarchy -- the whole reason a Hollow, a Lance and an Anchor must
+  // never be mistaken for each other at a glance. SCALE multiplies the raw
+  // vertex arrays above (applied via ctx.scale at the draw call, so the
+  // shapes themselves stay untouched and tunable on their own); STROKE_PX
+  // is the actual on-screen line width in pixels, independent of scale.
+  // Hollow is the 1.0x baseline -- everything else reads bigger/brighter
+  // against it, on purpose: Lance is a threat, Anchor is a wall, Warden
+  // is the player.
+  const SHIP_SCALE = { hollow: 1.0, lance: 1.6, anchor: 2.6, warden: 2.2 };
+  const SHIP_STROKE_PX = { hollow: 1.5, lance: 2.5, anchor: 4, warden: 3 };
+
   const DEBUG = true;
 
   const TUNE = {
@@ -603,6 +614,14 @@
     ctx.fill();
     ctx.globalAlpha = 1;
     ctx.strokeStyle = color;
+
+    // Bloom: a soft, wide glow pass under the crisp core stroke, both
+    // additive -- this is what makes a line punch out of black instead of
+    // sitting on it as a flat, thin outline.
+    ctx.lineWidth = lineWidth * 3;
+    ctx.globalAlpha = 0.35;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
     ctx.lineWidth = lineWidth;
     ctx.stroke();
   }
@@ -2567,16 +2586,19 @@
       ctx.translate(enemy.x, enemy.y);
       ctx.rotate(enemy.angle);
 
-      // Tier is shape, stroke weight and brightness -- never a different
-      // hue. Hollow/Lance/Anchor are all pal's ONE hue this galaxy, just
-      // progressively thicker and hotter, matching their unlock order.
+      // Tier is shape, SIZE, stroke weight and brightness -- never a
+      // different hue. Hollow/Lance/Anchor are all pal's ONE hue this
+      // galaxy; SHIP_SCALE/SHIP_STROKE_PX (top of file) are what make the
+      // tier hierarchy readable instantly instead of just by shape alone.
       // Block 23: hit feedback is a flash to white, full stop.
       const flashing = currentTime < enemy.flashUntil;
       if (enemy.type === 'lance') {
-        strokeShipPath(SHIP_LANCE, flashing ? '#fff' : pal.tier2, 1.6);
+        ctx.scale(SHIP_SCALE.lance, SHIP_SCALE.lance);
+        strokeShipPath(SHIP_LANCE, flashing ? '#fff' : pal.tier2, SHIP_STROKE_PX.lance / SHIP_SCALE.lance);
       } else if (enemy.type === 'anchor') {
         const color = flashing ? '#fff' : pal.tier3;
-        strokeShipPath(SHIP_ANCHOR, color, 2.5);
+        ctx.scale(SHIP_SCALE.anchor, SHIP_SCALE.anchor);
+        strokeShipPath(SHIP_ANCHOR, color, SHIP_STROKE_PX.anchor / SHIP_SCALE.anchor);
 
         // Fracture lines -- surface detail, not part of the outline. Same
         // colour as the hull (tier is brightness/size/stroke, never hue).
@@ -2593,7 +2615,8 @@
         ctx.globalAlpha = 1;
       } else {
         const color = flashing ? '#fff' : pal.tier1;
-        strokeShipPath(SHIP_HOLLOW, color, 1.2);
+        ctx.scale(SHIP_SCALE.hollow, SHIP_SCALE.hollow);
+        strokeShipPath(SHIP_HOLLOW, color, SHIP_STROKE_PX.hollow / SHIP_SCALE.hollow);
 
         // A small hot core -- same hue as the hull, additively stacked so
         // it reads as brighter without ever switching colour.
@@ -2682,10 +2705,13 @@
     ctx.save();
     ctx.translate(player.x, player.y - TUNE.THUMB_OFFSET);
     ctx.rotate(player.angle);
+    ctx.scale(SHIP_SCALE.warden, SHIP_SCALE.warden);
 
     // Always white-hot, never flashed or recoloured -- player damage reads
     // through the screen-edge vignette instead (see below), not the ship.
-    strokeShipPath(SHIP_WARDEN, '#fff', 1.5);
+    // lineWidth is pre-divided by the scale above so the actual on-screen
+    // stroke is SHIP_STROKE_PX.warden regardless of how big the hull is.
+    strokeShipPath(SHIP_WARDEN, '#fff', SHIP_STROKE_PX.warden / SHIP_SCALE.warden);
 
     // Panel lines -- surface detail, not part of the outline. Three seams
     // running LENGTHWISE (nose to tail), not crossbars, so they read as
