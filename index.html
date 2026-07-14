@@ -324,7 +324,27 @@
     HERALD_LENSING_MAX_PULL: 150,
     HERALD_SCATTERING_PUSH_STRENGTH: 65,     // px/s, constant push away from it
     HERALD_SCATTERING_BULLET_DRIFT: 130,     // px/s^2, lateral drift applied to every live bullet
-    HERALD_TRANSFER_HALF_DPS_MULT: 0.6       // vs. BOSS_DPS, per half -- both touching at once ~= a normal boss
+    HERALD_TRANSFER_HALF_DPS_MULT: 0.6,      // vs. BOSS_DPS, per half -- both touching at once ~= a normal boss
+
+    // Block 28 -- elites. One randomly-chosen affix, never stacked.
+    ELITE_CHANCE: 0.04,
+    ELITE_CHANCE_PER_WAVE: 0.004,     // "rises slightly with wave number"
+    ELITE_CHANCE_MAX: 0.3,
+    ELITE_MIN_WAVE: 4,
+    ELITE_HP_MULT: 4,
+    ELITE_SIZE_MULT: 1.5,
+    ELITE_MOTES: 15,
+    ELITE_PULSE_MS: 550,              // ms per outline pulse cycle -- the unmistakable "this is an elite" tell
+    AFFIX_SHIELDED_DURATION: 2,       // s of no damage after each hit that lands
+    AFFIX_SWIFT_SPEED_MULT: 2,
+    AFFIX_SWIFT_TURN_MULT: 2,
+    AFFIX_SWIFT_TRAIL_LENGTH: 14,
+    AFFIX_SPLITTING_COUNT: 3,
+    AFFIX_REGEN_PCT_PER_SEC: 0.04,
+    AFFIX_VOLATILE_RADIUS: 90,
+    AFFIX_VOLATILE_DAMAGE: 35,
+    AFFIX_MAGNETIC_RADIUS: 320,
+    AFFIX_MAGNETIC_STRENGTH: 55       // px/s at zero distance, falling off linearly to 0
   };
 
   const TUNE_DEFAULTS = { ...TUNE };
@@ -851,7 +871,11 @@
   // just crossing lines, in a crowd) plus a bright stroke on top. Assumes
   // ctx.translate/rotate for this entity are already applied and additive
   // blending is already active (set once per frame, not per entity).
-  function strokeShipPath(points, color, lineWidth) {
+  // Block 28 -- strokeColor is optional, defaulting to `color`: an elite's
+  // FILL stays its normal galaxy/tier colour (never a different hue), only
+  // its OUTLINE swaps to the pulsing near-white passed in separately.
+  function strokeShipPath(points, color, lineWidth, strokeColor) {
+    const sc = strokeColor || color;
     ctx.beginPath();
     ctx.moveTo(points[0][0], points[0][1]);
     for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
@@ -860,7 +884,7 @@
     ctx.globalAlpha = 0.12;
     ctx.fill();
     ctx.globalAlpha = 1;
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = sc;
 
     // Bloom: a soft, wide glow pass under the crisp core stroke, both
     // additive -- this is what makes a line punch out of black instead of
@@ -1245,6 +1269,38 @@
     return 'hollow';
   }
 
+  // Block 28 -- elites. A normal Hollow/Lance/Anchor with exactly one of
+  // these six affixes, never tied to the galaxy's element (every galaxy
+  // uses all six) and never stacked (one roll, one affix).
+  const AFFIXES = ['shielded', 'swift', 'splitting', 'regenerating', 'volatile', 'magnetic'];
+
+  function eliteChanceForWave(n) {
+    return Math.min(TUNE.ELITE_CHANCE_MAX, TUNE.ELITE_CHANCE + n * TUNE.ELITE_CHANCE_PER_WAVE);
+  }
+
+  // Mutates and returns `enemy` -- called right before spawnEnemy hands it
+  // back, so every stat below (hp, radius, speed/turn) is layered on top
+  // of whatever the normal per-wave/per-type formula already computed.
+  function applyElite(enemy, n) {
+    if (n < TUNE.ELITE_MIN_WAVE || Math.random() >= eliteChanceForWave(n)) return enemy;
+    enemy.elite = true;
+    enemy.affix = AFFIXES[Math.floor(Math.random() * AFFIXES.length)];
+    enemy.hp = Math.floor(enemy.hp * TUNE.ELITE_HP_MULT);
+    enemy.maxHp = enemy.hp;
+    enemy.radius *= TUNE.ELITE_SIZE_MULT;
+    if (enemy.affix === 'swift') {
+      // Hollow/Anchor read speed/turn straight off the entity already;
+      // Lance's aim-turn is normally a shared TUNE constant, so it needs
+      // its own per-entity override to be 2x for just this one elite.
+      if (enemy.speed !== undefined) enemy.speed *= TUNE.AFFIX_SWIFT_SPEED_MULT;
+      if (enemy.turn !== undefined) enemy.turn *= TUNE.AFFIX_SWIFT_TURN_MULT;
+      if (enemy.chargeSpeed !== undefined) enemy.chargeSpeed *= TUNE.AFFIX_SWIFT_SPEED_MULT;
+      enemy.aimTurn = TUNE.LANCE_AIM_TURN * TUNE.AFFIX_SWIFT_TURN_MULT;
+      enemy.trail = [];
+    }
+    return enemy;
+  }
+
   function spawnEnemy(n) {
     const pad = 40;
     const edge = Math.floor(Math.random() * 4);
@@ -1262,20 +1318,42 @@
     if (type === 'lance') {
       const hp = Math.floor(TUNE.LANCE_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE) * rockMult);
       const chargeSpeed = TUNE.LANCE_CHARGE_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE;
-      return {
+      return applyElite({
         type, x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.LANCE_RADIUS,
         chargeSpeed, phase: 'aim', phaseTimer: 0, chargeAngle: 0
-      };
+      }, n);
     }
 
     if (type === 'anchor') {
       const hp = Math.floor(TUNE.ANCHOR_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE) * rockMult);
       const speed = (TUNE.ANCHOR_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE) * (0.9 + Math.random() * 0.2);
-      return { type, x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.ANCHOR_RADIUS, speed, turn: TUNE.ANCHOR_TURN };
+      return applyElite({ type, x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.ANCHOR_RADIUS, speed, turn: TUNE.ANCHOR_TURN }, n);
     }
 
     const baseSpeed = TUNE.ENEMY_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE;
     const speed = baseSpeed * (0.9 + Math.random() * 0.2);   // +/-10%
+    const turn = TUNE.ENEMY_TURN * (0.85 + Math.random() * 0.3);
+    const hp = Math.floor(TUNE.ENEMY_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE) * rockMult);
+    return applyElite({ type: 'hollow', x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.ENEMY_RADIUS, speed, turn }, n);
+  }
+
+  // SPLITTING: "spawns 3 NORMAL enemies of the same type" -- same per-wave
+  // stat formulas as spawnEnemy, just placed at a fixed point instead of
+  // spawned off-screen, and never elite itself (no applyElite call).
+  function spawnNormalEnemyAt(type, x, y, n) {
+    const rockMult = currentElement() === 'Rock' ? TUNE.ELEMENT_ROCK_HP_MULT : 1;
+    if (type === 'lance') {
+      const hp = Math.floor(TUNE.LANCE_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE) * rockMult);
+      const chargeSpeed = TUNE.LANCE_CHARGE_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE;
+      return { type, x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.LANCE_RADIUS, chargeSpeed, phase: 'aim', phaseTimer: 0, chargeAngle: 0 };
+    }
+    if (type === 'anchor') {
+      const hp = Math.floor(TUNE.ANCHOR_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE) * rockMult);
+      const speed = (TUNE.ANCHOR_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE) * (0.9 + Math.random() * 0.2);
+      return { type, x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.ANCHOR_RADIUS, speed, turn: TUNE.ANCHOR_TURN };
+    }
+    const baseSpeed = TUNE.ENEMY_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE;
+    const speed = baseSpeed * (0.9 + Math.random() * 0.2);
     const turn = TUNE.ENEMY_TURN * (0.85 + Math.random() * 0.3);
     const hp = Math.floor(TUNE.ENEMY_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE) * rockMult);
     return { type: 'hollow', x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.ENEMY_RADIUS, speed, turn };
@@ -2282,7 +2360,7 @@
       const dy = player.y - enemy.y;
       const targetAngle = Math.atan2(dy, dx);
       let diff = ((targetAngle - enemy.angle + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
-      enemy.angle += diff * TUNE.LANCE_AIM_TURN;
+      enemy.angle += diff * (enemy.aimTurn || TUNE.LANCE_AIM_TURN);
       enemy.vx += (0 - enemy.vx) * 0.2;
       enemy.vy += (0 - enemy.vy) * 0.2;
       if (Math.abs(diff) < TUNE.LANCE_AIM_ALIGN) {
@@ -2331,6 +2409,13 @@
         updateChaseEnemy(enemy, dt, grid);
       }
 
+      // SWIFT: "a long motion trail" -- the readability tell for a
+      // 2x-speed elite, same tapering-line technique as the Warden's own.
+      if (enemy.affix === 'swift') {
+        enemy.trail.push({ x: enemy.x, y: enemy.y });
+        if (enemy.trail.length > TUNE.AFFIX_SWIFT_TRAIL_LENGTH) enemy.trail.shift();
+      }
+
       // Nebula: the same current pushing the player pushes every enemy too.
       if (w) {
         enemy.x += w.x * dt;
@@ -2346,6 +2431,27 @@
           player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
           sfxPlayerHit();
           if (player.hp <= 0 && state === STATE.RUN) killPlayer('enemy');
+        }
+      }
+
+      // Block 28 -- REGENERATING: "you must burst it down or you never
+      // will." No cap beyond its own maxHp.
+      if (enemy.elite && enemy.affix === 'regenerating') {
+        enemy.hp = Math.min(enemy.maxHp, enemy.hp + enemy.maxHp * TUNE.AFFIX_REGEN_PCT_PER_SEC * dt);
+      }
+
+      // MAGNETIC: "pulls the player gently toward it while alive" -- a
+      // positional nudge, same pattern as Gravity/Scattering, re-clamped
+      // to the margins since it runs after update()'s own clamp this frame.
+      if (enemy.elite && enemy.affix === 'magnetic' && state === STATE.RUN) {
+        const mdx = enemy.x - player.x, mdy = enemy.y - player.y;
+        const mdist = Math.hypot(mdx, mdy);
+        if (mdist > 0.001 && mdist < TUNE.AFFIX_MAGNETIC_RADIUS) {
+          const s = TUNE.AFFIX_MAGNETIC_STRENGTH * (1 - mdist / TUNE.AFFIX_MAGNETIC_RADIUS);
+          player.x += (mdx / mdist) * s * dt;
+          player.y += (mdy / mdist) * s * dt;
+          player.x = Math.max(TUNE.MARGIN, Math.min(window.innerWidth - TUNE.MARGIN, player.x));
+          player.y = Math.max(TUNE.MARGIN, Math.min(window.innerHeight - TUNE.MARGIN, player.y));
         }
       }
 
@@ -3076,6 +3182,9 @@
         const metronomeBlocked = isBoss && heraldIdx === HERALD_METRONOME && !metronomeVulnerable(boss);
         const latticeFacet = isBoss && heraldIdx === HERALD_LATTICE ? latticeFacetIndex(boss, nx, ny) : -1;
         const latticeBlocked = latticeFacet >= 0 && boss.facetHits[latticeFacet] < TUNE.HERALD_LATTICE_FACET_HITS;
+        // SHIELDED: "takes no damage for the first 2 seconds after each
+        // hit that lands" -- ignores rapid fire, not a flat immunity.
+        const shieldedBlocked = closest.elite && closest.affix === 'shielded' && currentTime < (closest.shieldedUntil || 0);
 
         if (metronomeBlocked) {
           // THE METRONOME: the shot visibly connects -- flash, spark,
@@ -3099,9 +3208,22 @@
           bullet.hit.add(closest);
           if (bullet.pierceRemaining > 0) bullet.pierceRemaining--; else bullet.dead = true;
 
+        } else if (shieldedBlocked) {
+          // SHIELDED: absorbs -- the ring (drawn at the call site) flashes,
+          // the body itself never shows the normal white hit-flash, since
+          // this isn't a landed hit.
+          closest.shieldFlashUntil = currentTime + 150;
+          spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, '255, 255, 255', 3);
+          sfxHit();
+          bullet.hit.add(closest);
+          if (bullet.pierceRemaining > 0) bullet.pierceRemaining--; else bullet.dead = true;
+
         } else {
           closest.hp -= TUNE.BULLET_DAMAGE * Math.pow(TUNE.DAMAGE_MULT, upgradeLevels.damage) * Math.pow(TUNE.SHOP_CALIBRE_MULT, shop.calibre);
           closest.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
+          if (closest.elite && closest.affix === 'shielded') {
+            closest.shieldedUntil = currentTime + TUNE.AFFIX_SHIELDED_DURATION * 1000;
+          }
 
           // Rock: "immune to knockback... they do not stagger."
           if (currentElement() !== 'Rock') {
@@ -3159,7 +3281,45 @@
               if (!remaining) handleBossDefeated(closest);
             } else {
               sfxKill();
-              motes.push({ x: closest.x, y: closest.y, speed: 0 });
+              if (closest.elite) {
+                // 15 motes instead of 1, scattered like the Fragment's
+                // (much bigger) drop -- same collection mechanic either way.
+                for (let i = 0; i < TUNE.ELITE_MOTES; i++) {
+                  const jx = (Math.random() * 2 - 1) * 10;
+                  const jy = (Math.random() * 2 - 1) * 10;
+                  motes.push({ x: closest.x + jx, y: closest.y + jy, speed: 0 });
+                }
+                if (closest.affix === 'splitting') {
+                  const n = TUNE.AFFIX_SPLITTING_COUNT;
+                  for (let i = 0; i < n; i++) {
+                    if (enemies.length >= TUNE.MAX_ENEMIES) break;
+                    const ang = (Math.PI * 2 / n) * i;
+                    enemies.push(spawnNormalEnemyAt(
+                      closest.type,
+                      closest.x + Math.cos(ang) * closest.radius,
+                      closest.y + Math.sin(ang) * closest.radius,
+                      difficultyWave()
+                    ));
+                  }
+                } else if (closest.affix === 'volatile') {
+                  // "Do not kill it while standing next to it."
+                  const vdist = Math.hypot(player.x - closest.x, player.y - closest.y);
+                  if (vdist < TUNE.AFFIX_VOLATILE_RADIUS && state === STATE.RUN) {
+                    player.hp -= TUNE.AFFIX_VOLATILE_DAMAGE;
+                    player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
+                    sfxPlayerHit();
+                    if (player.hp <= 0 && state === STATE.RUN) killPlayer('enemy');
+                  }
+                  for (let i = 0; i < 16; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const spd = 100 + Math.random() * 120;
+                    spawnParticle(closest.x, closest.y, Math.cos(angle) * spd, Math.sin(angle) * spd, TUNE.DEATH_BURST_MS * 1.5, hslToRgbTriplet(currentHue(), 0.9, 0.7), 3.5);
+                  }
+                  shakeStrength = Math.max(shakeStrength, TUNE.SHAKE_KILL * 1.5);
+                }
+              } else {
+                motes.push({ x: closest.x, y: closest.y, speed: 0 });
+              }
               waveKilled++;
             }
           }
@@ -3372,9 +3532,53 @@
     }
 
     for (const enemy of enemies) {
+      const flashing = currentTime < enemy.flashUntil;
+
+      // Block 28 -- world-space affix tells, drawn BEFORE the entity's own
+      // local translate/rotate since they're relative to the world (a
+      // trail of past positions, a line to the player), not the hull.
+      if (enemy.affix === 'swift' && enemy.trail && enemy.trail.length > 1) {
+        for (let i = 0; i < enemy.trail.length - 1; i++) {
+          const a = enemy.trail[i], b = enemy.trail[i + 1];
+          const age = (i + 1) / enemy.trail.length;
+          ctx.strokeStyle = flashing ? '#fff' : pal.tier2;
+          ctx.globalAlpha = age * 0.5;
+          ctx.lineWidth = 3 * age;
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+      if (enemy.affix === 'magnetic' && Math.hypot(enemy.x - player.x, enemy.y - player.y) < TUNE.AFFIX_MAGNETIC_RADIUS) {
+        ctx.strokeStyle = pal.lightAccent;
+        ctx.globalAlpha = 0.28;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(enemy.x, enemy.y);
+        ctx.lineTo(player.x, player.y - TUNE.THUMB_OFFSET);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+
       ctx.save();
       ctx.translate(enemy.x, enemy.y);
       ctx.rotate(enemy.angle);
+
+      // Elites scale up the WHOLE local space (hull + its decorations
+      // together) by ELITE_SIZE_MULT; lineWidths below are pre-divided by
+      // that same factor so the actual on-screen stroke width matches
+      // SHIP_STROKE_PX regardless of size, same lesson as the Warden fix.
+      const elite = !!enemy.elite;
+      const eliteScale = elite ? TUNE.ELITE_SIZE_MULT : 1;
+      if (elite) ctx.scale(eliteScale, eliteScale);
+      // The unmistakable elite tell: the OUTLINE (never the fill) pulses
+      // near-white. Flashing (a landed hit) still takes priority, same as
+      // every other entity's hit feedback.
+      const pulseT = 0.5 + 0.5 * Math.sin((currentTime / TUNE.ELITE_PULSE_MS) * Math.PI * 2);
+      const eliteStroke = elite && !flashing ? `rgba(255, 255, 255, ${(0.55 + 0.45 * pulseT).toFixed(2)})` : null;
+      const visualSize = enemy.type === 'lance' ? LANCE_SIZE : enemy.type === 'anchor' ? ANCHOR_SIZE : HOLLOW_SIZE;
 
       // Tier is shape, SIZE, stroke weight and brightness -- never a
       // different hue. Hollow/Lance/Anchor are all pal's ONE hue this
@@ -3382,12 +3586,11 @@
       // file) are what make the tier hierarchy readable instantly instead
       // of just by shape alone. Block 23: hit feedback is a flash to
       // white, full stop.
-      const flashing = currentTime < enemy.flashUntil;
       if (enemy.type === 'lance') {
-        strokeShipPath(SHIP_LANCE, flashing ? '#fff' : pal.tier2, SHIP_STROKE_PX.lance);
+        strokeShipPath(SHIP_LANCE, flashing ? '#fff' : pal.tier2, SHIP_STROKE_PX.lance / eliteScale, eliteStroke);
       } else if (enemy.type === 'anchor') {
         const color = flashing ? '#fff' : pal.tier3;
-        strokeShipPath(SHIP_ANCHOR, color, SHIP_STROKE_PX.anchor);
+        strokeShipPath(SHIP_ANCHOR, color, SHIP_STROKE_PX.anchor / eliteScale, eliteStroke);
 
         // Fracture lines -- surface detail, not part of the outline. Same
         // colour as the hull (tier is brightness/size/stroke, never hue).
@@ -3404,11 +3607,11 @@
         ctx.globalAlpha = 1;
       } else if (enemy.type === 'transfer_half') {
         // Still boss-tier after the split -- THE TRANSFER's own shape and
-        // brightness, not the swarm's Hollow silhouette.
+        // brightness, not the swarm's Hollow silhouette. Never elite.
         strokeShipPath(heraldTransferPoints(enemy.radius), flashing ? '#fff' : pal.bossAccent, 2.5);
       } else {
         const color = flashing ? '#fff' : pal.tier1;
-        strokeShipPath(SHIP_HOLLOW, color, SHIP_STROKE_PX.hollow);
+        strokeShipPath(SHIP_HOLLOW, color, SHIP_STROKE_PX.hollow / eliteScale, eliteStroke);
 
         // A small hot core -- same hue as the hull, additively stacked so
         // it reads as brighter without ever switching colour.
@@ -3418,6 +3621,54 @@
         ctx.arc(0, 0, HOLLOW_SIZE * 0.13, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = 1;
+      }
+
+      // Block 28 -- the affix-specific readability tell, on top of the
+      // shared elite pulse. Drawn in the same (now possibly ELITE_SIZE_MULT
+      // -scaled) local space as the hull, so visualSize is the pre-scale
+      // reference radius, matching how the hull itself is sized.
+      if (elite) {
+        if (enemy.affix === 'shielded') {
+          const shieldFlash = currentTime < (enemy.shieldFlashUntil || 0);
+          ctx.beginPath();
+          ctx.arc(0, 0, visualSize * 1.35, 0, Math.PI * 2);
+          ctx.strokeStyle = '#fff';
+          ctx.globalAlpha = shieldFlash ? 0.9 : 0.3;
+          ctx.lineWidth = shieldFlash ? 3 : 1.3;
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        } else if (enemy.affix === 'regenerating') {
+          // "A slow pulse, like breathing" -- deliberately much slower
+          // than the shared elite outline shimmer, so the two read as
+          // two different signals, not one.
+          const breathe = 0.5 + 0.5 * Math.sin(currentTime / 1000);
+          ctx.beginPath();
+          ctx.arc(0, 0, visualSize * (1.15 + breathe * 0.3), 0, Math.PI * 2);
+          ctx.strokeStyle = pal.lightAccent;
+          ctx.globalAlpha = 0.2 + breathe * 0.3;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        } else if (enemy.affix === 'volatile') {
+          const missing = 1 - enemy.hp / enemy.maxHp;
+          ctx.beginPath();
+          ctx.arc(0, 0, visualSize * 0.55, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255, ${Math.floor(230 - missing * 170)}, ${Math.floor(190 - missing * 190)}, ${(0.25 + missing * 0.55).toFixed(2)})`;
+          ctx.fill();
+        } else if (enemy.affix === 'splitting') {
+          ctx.strokeStyle = flashing ? '#fff' : pal.tier1;
+          ctx.globalAlpha = 0.55;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(visualSize * 0.6, visualSize * 0.2);
+          ctx.lineTo(visualSize * -0.1, visualSize * 0.5);
+          ctx.lineTo(visualSize * 0.2, visualSize * 0.9);
+          ctx.moveTo(visualSize * -0.5, visualSize * -0.1);
+          ctx.lineTo(visualSize * 0.1, visualSize * -0.6);
+          ctx.lineTo(visualSize * -0.3, visualSize * -0.9);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
       }
 
       ctx.restore();
