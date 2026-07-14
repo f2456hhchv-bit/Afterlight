@@ -168,7 +168,15 @@
     KEKU_RADIUS: 42,            // larger than a normal boss
     KEKU_MOTES: 500,            // dropped on death, as 500 individual motes
     KEKU_TELL_DURATION: 4,      // seconds of frozen enemies + silence + whiteout before he arrives
-    KEKU_WHITEOUT_FADE_S: 1.2   // seconds for the palette to recover after he's gone
+    KEKU_WHITEOUT_FADE_S: 1.2,  // seconds for the palette to recover after he's gone
+    BULLET_TRAIL_LENGTH: 14,       // px, the streak drawn back along a bullet's velocity
+    BULLET_TRAIL_ALPHA: 0.5,       // alpha at the streak's base (tapers to 0 at the tail)
+    VIGNETTE_MAX_ALPHA: 0.45,      // opacity of the red screen-edge flash at the instant of a hit
+    VIGNETTE_FADE_MS: 260,         // how long the vignette takes to fade back out
+    LEAP_FLOOD_PEAK: 0.25,         // fraction of the leap's duration where the colour flood peaks
+    LEAP_FLOOD_LIGHTNESS: 55,      // %, HSL lightness of the galaxy colour at the flood's peak
+    VIGNETTE_INNER_RADIUS_FRAC: 0.55,  // fraction of the screen radius left clear at the centre
+    BULLET_CORE_SCALE: 0.6             // core dot radius, as a fraction of BULLET_RADIUS
   };
 
   const TUNE_DEFAULTS = { ...TUNE };
@@ -2438,17 +2446,40 @@
     ctx.textAlign = 'left';
   }
 
+  // Galaxy cleared: floods with the JUST-CLEARED galaxy's own colour (not
+  // blended toward the next one -- this is a celebration of what was just
+  // held), then fades all the way to black as the leap begins. Not a
+  // symmetric pulse: quick rise, slower decay to #000, never tinted white.
   function drawLeap() {
     const t = Math.min((currentTime - leapStartTime) / LEAP_DURATION_MS, 1);
-    const fromHue = GALAXY_DATA[leapFrom].hue;
-    const toHue = GALAXY_DATA[leapTo].hue;
-    const hue = fromHue + (toHue - fromHue) * t;
-    const flash = Math.sin(t * Math.PI);   // peaks at the midpoint, settles at both ends
+    const hue = GALAXY_DATA[leapFrom].hue;
+    const intensity = t < TUNE.LEAP_FLOOD_PEAK
+      ? t / TUNE.LEAP_FLOOD_PEAK
+      : Math.max(0, 1 - (t - TUNE.LEAP_FLOOD_PEAK) / (1 - TUNE.LEAP_FLOOD_PEAK));
 
-    ctx.fillStyle = `hsl(${hue}, 80%, ${(12 + flash * 25).toFixed(2)}%)`;
+    ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.fillStyle = `rgba(255, 255, 255, ${(flash * 0.3).toFixed(3)})`;
+    ctx.fillStyle = `hsl(${hue}, 85%, ${(intensity * TUNE.LEAP_FLOOD_LIGHTNESS).toFixed(1)}%)`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  // Player damage: a hard red vignette at the screen edges, not a ship
+  // recolour. player.flashUntil is already set (currentTime + HIT_FLASH_MS)
+  // at both contact-damage sites; continuous contact keeps re-setting it
+  // every frame, so the vignette stays hot while you're being hit and only
+  // starts fading VIGNETTE_FADE_MS after contact actually breaks.
+  function drawDamageVignette() {
+    const hitAge = currentTime - (player.flashUntil - TUNE.HIT_FLASH_MS);
+    if (hitAge < 0 || hitAge > TUNE.VIGNETTE_FADE_MS) return;
+    const alpha = TUNE.VIGNETTE_MAX_ALPHA * (1 - hitAge / TUNE.VIGNETTE_FADE_MS);
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const outerR = Math.hypot(cx, cy);
+    const grd = ctx.createRadialGradient(cx, cy, outerR * TUNE.VIGNETTE_INNER_RADIUS_FRAC, cx, cy, outerR);
+    grd.addColorStop(0, 'rgba(255, 45, 85, 0)');       // DAMAGE_COLOR, transparent at centre
+    grd.addColorStop(1, `rgba(255, 45, 85, ${alpha.toFixed(3)})`);
+    ctx.fillStyle = grd;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 
@@ -2491,13 +2522,14 @@
       // Tier is shape, stroke weight and brightness -- never a different
       // hue. Hollow/Lance/Anchor are all pal's ONE hue this galaxy, just
       // progressively thicker and hotter, matching their unlock order.
+      // Block 23: hit feedback is a flash to white, full stop.
       const flashing = currentTime < enemy.flashUntil;
       if (enemy.type === 'lance') {
-        strokeShipPath(SHIP_LANCE, flashing ? DAMAGE_COLOR : pal.tier2, 1.6);
+        strokeShipPath(SHIP_LANCE, flashing ? '#fff' : pal.tier2, 1.6);
       } else if (enemy.type === 'anchor') {
-        strokeShipPath(SHIP_ANCHOR, flashing ? DAMAGE_COLOR : pal.tier3, 2.5);
+        strokeShipPath(SHIP_ANCHOR, flashing ? '#fff' : pal.tier3, 2.5);
       } else {
-        strokeShipPath(SHIP_HOLLOW, flashing ? DAMAGE_COLOR : pal.tier1, 1.2);
+        strokeShipPath(SHIP_HOLLOW, flashing ? '#fff' : pal.tier1, 1.2);
       }
 
       ctx.restore();
@@ -2508,24 +2540,38 @@
       ctx.translate(boss.x, boss.y);
       ctx.rotate(boss.angle);
 
-      // WHITE IS SACRED -- only the Warden and Keku's map pinprick ever are.
-      // The Fragment is "same hue, enormous, hottest thing except the
-      // player," so it's the hottest, most washed-out tint of THIS galaxy's
-      // hue instead of literal white.
-      const color = boss.isFragment ? pal.fragmentAccent : (currentTime < boss.flashUntil ? DAMAGE_COLOR : pal.bossAccent);
+      // WHITE IS SACRED as a resting colour -- the Fragment's own hue is
+      // pal.fragmentAccent, not literal white. A hit is still a flash to
+      // white either way, same as every other entity.
+      const color = currentTime < boss.flashUntil ? '#fff' : (boss.isFragment ? pal.fragmentAccent : pal.bossAccent);
       strokeShipPath(bossShipPoints(boss.radius), color, 2.5);
 
       ctx.restore();
     }
 
-    // Bullets: the Warden's own fire, but not white -- white is sacred, and
-    // this is light borrowed from the galaxy, not the ship itself.
-    ctx.strokeStyle = pal.lightAccent;
-    ctx.lineWidth = 1.4;
+    // Bullets: hot white streaks -- the Warden's own fire, an extension of
+    // the one sacred-white ship that fired them, not galaxy-coloured light.
     for (const bullet of bullets) {
+      const speed = Math.hypot(bullet.vx, bullet.vy) || 1;
+      const bx = -bullet.vx / speed;
+      const by = -bullet.vy / speed;
+      const grd = ctx.createLinearGradient(
+        bullet.x, bullet.y,
+        bullet.x + bx * TUNE.BULLET_TRAIL_LENGTH, bullet.y + by * TUNE.BULLET_TRAIL_LENGTH
+      );
+      grd.addColorStop(0, `rgba(255, 255, 255, ${TUNE.BULLET_TRAIL_ALPHA})`);
+      grd.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.strokeStyle = grd;
+      ctx.lineWidth = TUNE.BULLET_RADIUS;
       ctx.beginPath();
-      ctx.arc(bullet.x, bullet.y, TUNE.BULLET_RADIUS, 0, Math.PI * 2);
+      ctx.moveTo(bullet.x, bullet.y);
+      ctx.lineTo(bullet.x + bx * TUNE.BULLET_TRAIL_LENGTH, bullet.y + by * TUNE.BULLET_TRAIL_LENGTH);
       ctx.stroke();
+
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(bullet.x, bullet.y, TUNE.BULLET_RADIUS * TUNE.BULLET_CORE_SCALE, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     for (const p of particles) {
@@ -2556,12 +2602,13 @@
     ctx.translate(player.x, player.y - TUNE.THUMB_OFFSET);
     ctx.rotate(player.angle);
 
-    const wardenColor = currentTime < player.flashUntil ? DAMAGE_COLOR : '#fff';
-    strokeShipPath(SHIP_WARDEN, wardenColor, 1.5);
+    // Always white-hot, never flashed or recoloured -- player damage reads
+    // through the screen-edge vignette instead (see below), not the ship.
+    strokeShipPath(SHIP_WARDEN, '#fff', 1.5);
 
     // Panel lines -- surface detail, not part of the outline. A spine from
     // nose to the tail notch, and two short struts marking the nacelle roots.
-    ctx.strokeStyle = wardenColor;
+    ctx.strokeStyle = '#fff';
     ctx.globalAlpha = 0.5;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -2575,6 +2622,8 @@
     ctx.globalAlpha = 1;
 
     ctx.restore();
+
+    drawDamageVignette();
 
     if (dragging) {
       const pulseT = Math.min((currentTime - touchStartTime) / TUNE.PULSE_DURATION, 1);
