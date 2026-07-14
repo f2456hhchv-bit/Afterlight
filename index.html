@@ -492,11 +492,6 @@
       tier2: `hsl(${hue}, 80%, ${L(26, 55)}%)`,        // Lance -- brighter
       tier3: `hsl(${hue}, 88%, ${L(36, 68)}%)`,        // Anchor -- thick, hot
       bossAccent: `hsl(${hue}, 100%, ${L(55, 84)}%)`,  // boss -- hottest thing except the Warden
-      // The Fragment: "same hue, enormous, hottest thing except the player" --
-      // but WHITE IS SACRED (only the Warden and Keku's map pinprick ever
-      // are), so this is as close to white as a still-tinted hue can get,
-      // not literal #fff.
-      fragmentAccent: `hsl(${hue}, 45%, ${L(80, 94)}%)`,
       // Light itself -- motes, bullets, impact sparks. Precious, not
       // decorative confetti, so it rides the same depth curve as everything
       // else: barely-there in galaxy 1, hot by galaxy 10.
@@ -505,8 +500,9 @@
   }
 
   // Damage feedback -- one colour, used ONLY for "you just took/dealt a hit,"
-  // never for anything's normal state. White is sacred (Warden + Keku's map
-  // pinprick only), so this is deliberately not white either.
+  // never for anything's normal state. White is sacred (only the Warden and
+  // Keku, in-run and on the map, are ever white), so this is deliberately
+  // not white either.
   const DAMAGE_COLOR = '#ff2d55';
 
   // Which galaxy's hue is "live" right now, for the few spots (like impact
@@ -2548,11 +2544,19 @@
       ctx.translate(boss.x, boss.y);
       ctx.rotate(boss.angle);
 
-      // WHITE IS SACRED as a resting colour -- the Fragment's own hue is
-      // pal.fragmentAccent, not literal white. A hit is still a flash to
-      // white either way, same as every other entity.
-      const color = currentTime < boss.flashUntil ? '#fff' : (boss.isFragment ? pal.fragmentAccent : pal.bossAccent);
+      // WHITE IS SACRED as a resting colour -- and Keku is one of the two
+      // things that ever gets to wear it, same as the Warden. A hit is
+      // still a flash to white either way, same as every other entity.
+      const color = currentTime < boss.flashUntil ? '#fff' : (boss.isFragment ? '#fff' : pal.bossAccent);
       strokeShipPath(bossShipPoints(boss.radius), color, 2.5);
+
+      // The maw: a ring at the centre, open, not filled -- this is a mouth,
+      // not just a bigger hull.
+      ctx.beginPath();
+      ctx.arc(0, 0, boss.radius * 0.4, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
 
       ctx.restore();
     }
