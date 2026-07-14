@@ -458,21 +458,69 @@
   // galaxy-tinted gradient -- so this no longer returns a `background`
   // field at all. Light must punch out of absolute black; nothing sits
   // behind the entities.
-  function galaxyPalette(index) {
-    const data = GALAXY_DATA[index];
+  //
+  // "Colour is the galaxy, never the tier" -- every enemy in this galaxy is
+  // this galaxy's hue, full stop. Tier (Hollow/Lance/Anchor/boss) is
+  // expressed by shape, stroke weight and brightness within that ONE hue,
+  // via tier1/tier2/tier3/bossAccent below -- never by switching hue.
+  //
+  // "Light is scarce... it gets brighter as you go deeper" -- brightnessDepth
+  // (separate from hueIndex so endless can keep climbing past index 9, where
+  // the hue wraps but depth doesn't) drives every colour here from a bare,
+  // dim galaxy 1 toward a hot, saturated galaxy 10; it saturates at depth 9
+  // and holds there for anything deeper in endless, since HSL lightness has
+  // nowhere higher left to go.
+  function galaxyPalette(hueIndex, brightnessDepth) {
+    const data = GALAXY_DATA[hueIndex];
+    const hue = data.hue;
+    const depth = brightnessDepth === undefined ? hueIndex : brightnessDepth;
+    const b = Math.min(1, Math.max(0, depth / (GALAXY_DATA.length - 1)));
+    const L = (bare, hot) => (bare + (hot - bare) * b).toFixed(1);
     return {
       star: data.star,
       element: data.element,
-      hue: data.hue,
-      accent: `hsl(${data.hue}, 90%, 62%)`,
-      bossAccent: `hsl(${data.hue}, 100%, 72%)`   // hotter, brighter
+      hue: hue,
+      tier1: `hsl(${hue}, 70%, ${L(16, 42)}%)`,        // Hollow -- simple, thin, dim
+      tier2: `hsl(${hue}, 80%, ${L(26, 55)}%)`,        // Lance -- brighter
+      tier3: `hsl(${hue}, 88%, ${L(36, 68)}%)`,        // Anchor -- thick, hot
+      bossAccent: `hsl(${hue}, 100%, ${L(55, 84)}%)`,  // boss -- hottest thing except the Warden
+      // The Fragment: "same hue, enormous, hottest thing except the player" --
+      // but WHITE IS SACRED (only the Warden and Keku's map pinprick ever
+      // are), so this is as close to white as a still-tinted hue can get,
+      // not literal #fff.
+      fragmentAccent: `hsl(${hue}, 45%, ${L(80, 94)}%)`,
+      // Light itself -- motes, bullets, impact sparks. Precious, not
+      // decorative confetti, so it rides the same depth curve as everything
+      // else: barely-there in galaxy 1, hot by galaxy 10.
+      lightAccent: `hsl(${hue}, 75%, ${L(45, 74)}%)`
     };
   }
 
   // Damage feedback -- one colour, used ONLY for "you just took/dealt a hit,"
-  // never for anything's normal state. White is reserved for the Warden (and,
-  // separately, the Fragment -- the one deliberate collision with that rule).
+  // never for anything's normal state. White is sacred (Warden + Keku's map
+  // pinprick only), so this is deliberately not white either.
   const DAMAGE_COLOR = '#ff2d55';
+
+  // Which galaxy's hue is "live" right now, for the few spots (like impact
+  // sparks) that need a plain r,g,b triplet rather than an hsl() string.
+  function currentHue() {
+    const idx = endlessMode ? (endlessDepth - 1) % GALAXY_DATA.length : currentGalaxy;
+    return GALAXY_DATA[idx].hue;
+  }
+
+  function hslToRgbTriplet(h, s, l) {
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+    const m = l - c / 2;
+    let r, g, b;
+    if (h < 60) { r = c; g = x; b = 0; }
+    else if (h < 120) { r = x; g = c; b = 0; }
+    else if (h < 180) { r = 0; g = c; b = x; }
+    else if (h < 240) { r = 0; g = x; b = c; }
+    else if (h < 300) { r = x; g = 0; b = c; }
+    else { r = c; g = 0; b = x; }
+    return Math.round((r + m) * 255) + ',' + Math.round((g + m) * 255) + ',' + Math.round((b + m) * 255);
+  }
 
   // Hand-designed ship outlines (Block "neon wireframe"). Local space, nose
   // on the +X axis, drawn with ctx.translate/rotate already applied. Straight
@@ -2232,7 +2280,8 @@
         closest.x += (bullet.vx / blen) * TUNE.KNOCKBACK;
         closest.y += (bullet.vy / blen) * TUNE.KNOCKBACK;
 
-        spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, '255,255,255', 3);
+        // Sparks off the enemy's own light, not white -- white is sacred.
+        spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, hslToRgbTriplet(currentHue(), 0.7, 0.75), 3);
         sfxHit();
 
         bullet.hit.add(closest);
@@ -2246,11 +2295,14 @@
           closest.dead = true;
           shakeStrength = TUNE.SHAKE_KILL;
 
+          // The enemy's own light scattering, not a fixed universal red --
+          // colour is the galaxy, all the way down to its debris.
+          const burstColor = hslToRgbTriplet(currentHue(), 0.8, 0.6);
           const count = 6 + Math.floor(Math.random() * 3);
           for (let i = 0; i < count; i++) {
             const angle = Math.random() * Math.PI * 2;
             const burstSpeed = 60 + Math.random() * 80;
-            spawnParticle(closest.x, closest.y, Math.cos(angle) * burstSpeed, Math.sin(angle) * burstSpeed, TUNE.DEATH_BURST_MS, '255,0,0', 2.5);
+            spawnParticle(closest.x, closest.y, Math.cos(angle) * burstSpeed, Math.sin(angle) * burstSpeed, TUNE.DEATH_BURST_MS, burstColor, 2.5);
           }
 
           if (navigator.vibrate) navigator.vibrate(10);
@@ -2402,8 +2454,12 @@
 
   function drawRun() {
     // Endless recombines the ten authored star types rather than ever
-    // introducing new ones -- the palette index just wraps as depth grows.
-    const pal = galaxyPalette(endlessMode ? (endlessDepth - 1) % GALAXY_DATA.length : currentGalaxy);
+    // introducing new ones -- the hue index just wraps as depth grows, but
+    // brightness is fed the raw, unwrapped depth so it keeps climbing (and
+    // saturates, rather than resetting to "bare" every ten waves).
+    const pal = endlessMode
+      ? galaxyPalette((endlessDepth - 1) % GALAXY_DATA.length, endlessDepth - 1)
+      : galaxyPalette(currentGalaxy);
     // No fill here -- the void is always pure #000. draw() already cleared
     // the canvas to black before dispatching here; nothing goes behind the
     // entities, ever.
@@ -2432,13 +2488,16 @@
       ctx.translate(enemy.x, enemy.y);
       ctx.rotate(enemy.angle);
 
-      const color = currentTime < enemy.flashUntil ? DAMAGE_COLOR : pal.accent;
+      // Tier is shape, stroke weight and brightness -- never a different
+      // hue. Hollow/Lance/Anchor are all pal's ONE hue this galaxy, just
+      // progressively thicker and hotter, matching their unlock order.
+      const flashing = currentTime < enemy.flashUntil;
       if (enemy.type === 'lance') {
-        strokeShipPath(SHIP_LANCE, color, 1.5);
+        strokeShipPath(SHIP_LANCE, flashing ? DAMAGE_COLOR : pal.tier2, 1.6);
       } else if (enemy.type === 'anchor') {
-        strokeShipPath(SHIP_ANCHOR, color, 2);
+        strokeShipPath(SHIP_ANCHOR, flashing ? DAMAGE_COLOR : pal.tier3, 2.5);
       } else {
-        strokeShipPath(SHIP_HOLLOW, color, 1.5);
+        strokeShipPath(SHIP_HOLLOW, flashing ? DAMAGE_COLOR : pal.tier1, 1.2);
       }
 
       ctx.restore();
@@ -2449,16 +2508,20 @@
       ctx.translate(boss.x, boss.y);
       ctx.rotate(boss.angle);
 
-      // The Fragment is always pure white -- the only white enemy in the
-      // game, not just white-on-hit-flash like a normal boss.
-      const color = boss.isFragment ? '#fff' : (currentTime < boss.flashUntil ? DAMAGE_COLOR : pal.bossAccent);
+      // WHITE IS SACRED -- only the Warden and Keku's map pinprick ever are.
+      // The Fragment is "same hue, enormous, hottest thing except the
+      // player," so it's the hottest, most washed-out tint of THIS galaxy's
+      // hue instead of literal white.
+      const color = boss.isFragment ? pal.fragmentAccent : (currentTime < boss.flashUntil ? DAMAGE_COLOR : pal.bossAccent);
       strokeShipPath(bossShipPoints(boss.radius), color, 2.5);
 
       ctx.restore();
     }
 
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1.5;
+    // Bullets: the Warden's own fire, but not white -- white is sacred, and
+    // this is light borrowed from the galaxy, not the ship itself.
+    ctx.strokeStyle = pal.lightAccent;
+    ctx.lineWidth = 1.4;
     for (const bullet of bullets) {
       ctx.beginPath();
       ctx.arc(bullet.x, bullet.y, TUNE.BULLET_RADIUS, 0, Math.PI * 2);
@@ -2473,15 +2536,19 @@
       ctx.fill();
     }
 
+    // Motes: small, precious points -- not confetti, not white. The same
+    // depth-brightness curve as everything else means they're barely a glow
+    // in galaxy 1 and properly hot by galaxy 10.
     for (const mote of motes) {
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.fillStyle = pal.lightAccent;
+      ctx.globalAlpha = 0.22;
       ctx.beginPath();
-      ctx.arc(mote.x, mote.y, 6, 0, Math.PI * 2);
+      ctx.arc(mote.x, mote.y, 5, 0, Math.PI * 2);
       ctx.fill();
+      ctx.globalAlpha = 1;
 
-      ctx.fillStyle = '#fff';
       ctx.beginPath();
-      ctx.arc(mote.x, mote.y, 2.5, 0, Math.PI * 2);
+      ctx.arc(mote.x, mote.y, 2, 0, Math.PI * 2);
       ctx.fill();
     }
 
