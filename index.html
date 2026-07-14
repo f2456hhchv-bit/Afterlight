@@ -228,6 +228,8 @@
     SHOP_REACH_MULT: 1.08,           // +8% pickup radius per level
     SHOP_SALVAGE_MULT: 1.05,         // +5% motes collected per level
     SFX_MASTER_GAIN: 0.5,            // overall mixer level — everything else is relative to this
+    MUSIC_VOLUME: 0.7,               // settings slider -- scales the drone bus only
+    SFX_VOLUME: 1,                   // settings slider -- scales every one-shot sound only
     SFX_FIRE_GAIN: 0.05,
     SFX_HIT_GAIN: 0.08,
     SFX_KILL_GAIN: 0.12,
@@ -237,11 +239,21 @@
     SFX_BOSS_APPEAR_GAIN: 0.25,
     SFX_BOSS_DIE_GAIN: 0.3,
     SFX_GALAXY_CLEAR_GAIN: 0.3,
-    SFX_DRONE_GAIN: 0.035,
-    SFX_DRONE_BASE_FREQ: 55,         // Hz, wave 1
-    SFX_DRONE_WAVE_RISE: 1.8,        // Hz added per wave number — tension without the player knowing why
     SFX_PLAYER_HIT_COOLDOWN_MS: 220, // min gap between thuds while contact damage is continuous
     SFX_MOTE_COMBO_RESET_MS: 420,    // gap that resets the pickup pitch-climb
+
+    // Block 29 -- the ambient drone. A BED, quiet by default, under the SFX
+    // above -- DRONE_GAIN is deliberately much lower than any SFX gain.
+    DRONE_GAIN: 0.05,
+    DRONE_FADE_S: 1.4,                // seconds to fade in/out on start/stop/mode-switch
+    DRONE_FILTER_BASE: 500,           // Hz lowpass cutoff at wave 1 (intensity 0)
+    DRONE_FILTER_TENSE: 2600,         // Hz lowpass cutoff at wave 9+ (intensity 1)
+    DRONE_TREMOLO_RATE: 5,            // Hz, the shared tremolo LFO's speed
+    DRONE_TREMOLO_TENSE_DEPTH: 0.35,  // additional tremolo depth at full intensity
+    DRONE_HIGH_LAYER_TENSE_GAIN: 0.22,// how loud the intensity-only high layer gets at full tension
+    DRONE_BOSS_GAIN: 0.07,            // boss drone reads as HEAVIER, so it's allowed louder than the bed
+    DRONE_BOSS_FREQ: 38,              // Hz -- low, slow, "the room got smaller"
+    DRONE_BOSS_PULSE_RATE: 0.28,      // Hz, the boss drone's own slow throb
     KEKU_CHANCE: 0.03,          // rolled once per boss wave in endless — replaces that wave's boss
     KEKU_MIN_WAVE: 30,          // difficultyWave() floor — impossible before this
     KEKU_HP_MULT: 4,            // his HP = that wave's would-be boss HP x this
@@ -386,10 +398,13 @@
   // lazily (unlockAudio, called from pointerDown) rather than at load time.
   let audioCtx = null;
   let masterGain = null;
+  // Block 29 -- musicBus/sfxBus sit BETWEEN masterGain and every actual
+  // sound source, so "Master volume + separate music/SFX sliders" can each
+  // be adjusted independently: masterGain still ducks everything together
+  // (mute, pause), while these two scale only their own category on top.
+  let musicBus = null;
+  let sfxBus = null;
   let noiseBuffer = null;
-  let droneOsc1 = null;
-  let droneOsc2 = null;
-  let droneGain = null;
   let moteComboCount = 0;
   let lastMoteSoundTime = -Infinity;
   let lastPlayerHitSoundTime = -Infinity;
@@ -402,6 +417,14 @@
     masterGain = audioCtx.createGain();
     masterGain.gain.value = TUNE.SFX_MASTER_GAIN;
     masterGain.connect(audioCtx.destination);
+
+    musicBus = audioCtx.createGain();
+    musicBus.gain.value = TUNE.MUSIC_VOLUME;
+    musicBus.connect(masterGain);
+
+    sfxBus = audioCtx.createGain();
+    sfxBus.gain.value = TUNE.SFX_VOLUME;
+    sfxBus.connect(masterGain);
   }
 
   function unlockAudio() {
@@ -425,10 +448,16 @@
   // menu). Backgrounding is handled separately, by fully suspending the
   // context on visibilitychange, since Web Audio keeps rendering in a hidden
   // tab even though requestAnimationFrame stops — gain alone wouldn't do it.
+  // musicBus/sfxBus are updated here too (not just on slider change) so a
+  // live DEBUG-panel tweak to MUSIC_VOLUME/SFX_VOLUME takes effect at once.
   function syncAudioGain() {
     if (!masterGain || !audioCtx) return;
-    const target = (muted || paused) ? 0 : TUNE.SFX_MASTER_GAIN;
-    masterGain.gain.setTargetAtTime(target, audioCtx.currentTime, 0.05);
+    const t = audioCtx.currentTime;
+    const target = muted ? 0 : TUNE.SFX_MASTER_GAIN;
+    masterGain.gain.setTargetAtTime(target, t, 0.05);
+    const duck = paused ? 0 : 1;
+    if (musicBus) musicBus.gain.setTargetAtTime(TUNE.MUSIC_VOLUME * duck, t, 0.05);
+    if (sfxBus) sfxBus.gain.setTargetAtTime(TUNE.SFX_VOLUME * duck, t, 0.05);
   }
 
   document.addEventListener('visibilitychange', () => {
@@ -466,7 +495,7 @@
     g.gain.linearRampToValueAtTime(opts.gain, t0 + (opts.attack || 0.002));
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
     osc.connect(g);
-    g.connect(masterGain);
+    g.connect(opts.bus || sfxBus);
     osc.start(t0);
     osc.stop(t0 + duration + 0.05);
   }
@@ -493,7 +522,7 @@
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
     src.connect(filter);
     filter.connect(g);
-    g.connect(masterGain);
+    g.connect(sfxBus);
     src.start(t0);
     src.stop(t0 + duration + 0.05);
   }
@@ -560,59 +589,372 @@
   // Galaxy cleared: a warm rising triad, delayed slightly so it glows in
   // over the tail of the boss collapse rather than fighting it. The best
   // sound in the game — relief, not a fanfare.
+  // Block 29 -- "the only consonant sound in the game" is musical, not
+  // mechanical, so it routes through musicBus rather than sfxBus: turning
+  // SFX down for a run shouldn't silence the one moment of relief.
   function sfxGalaxyCleared() {
     const delay = 0.5;
     const notes = [220, 330, 440];
     for (const n of notes) {
-      playTone({ freq: n * 0.85, freqEnd: n, type: 'sine', duration: 3, gain: TUNE.SFX_GALAXY_CLEAR_GAIN / notes.length, attack: 1.2, delay });
+      playTone({ freq: n * 0.85, freqEnd: n, type: 'sine', duration: 3, gain: TUNE.SFX_GALAXY_CLEAR_GAIN / notes.length, attack: 1.2, delay, bus: musicBus });
     }
   }
 
-  // Ambient drone: quiet, under the whole run, pitch creeping up with the
-  // wave number. Persistent oscillators (not one-shots) started/stopped
-  // around a run rather than played per-frame.
-  function startDrone() {
-    ensureAudio();
-    if (!audioCtx || droneOsc1) return;
-    droneGain = audioCtx.createGain();
-    droneGain.gain.value = 0;
-    droneGain.connect(masterGain);
+  // Block 29 -- ten ambient drones, one per galaxy, plus a boss drone and
+  // silence for the Keku Fragment. A BED under the SFX above: DRONE_GAIN is
+  // far below any SFX gain, and everything here routes through musicBus,
+  // never sfxBus, so the settings sliders can treat them independently.
+  //
+  // Every drone shares one scaffold (see createDroneScaffold): a tremolo
+  // stage (an LFO modulating a gain, depth = per-galaxy baseline + wave
+  // intensity) and a "high layer" oscillator (silent at wave 1, fading in
+  // with intensity) both feed a single outGain that ramps in/out on
+  // start/stop. Each galaxy's builder function wires its own oscillators
+  // or filtered noise into `scaffold.sink`, sets the tremolo rate/depth
+  // and high-layer pitch that make it recognisably itself, and optionally
+  // provides `filterIntensityFn(t)` so "raising the filter cutoff" has
+  // something of ITS OWN to act on rather than a bolted-on generic filter
+  // that would just muffle a deliberately bright voice like Radiation's.
+  let drone = null;
+  let droneMode = null;         // 'galaxy' | 'boss' | null
+  let droneGalaxyIndex = -1;
 
-    droneOsc1 = audioCtx.createOscillator();
-    droneOsc1.type = 'sine';
-    droneOsc2 = audioCtx.createOscillator();
-    droneOsc2.type = 'sine';
-    droneOsc2.detune.value = 6;   // slight beating for texture — still a quiet drone, not a chord
+  function createDroneScaffold() {
+    const outGain = audioCtx.createGain();
+    outGain.gain.value = 0;
+    outGain.connect(musicBus);
 
-    droneOsc1.connect(droneGain);
-    droneOsc2.connect(droneGain);
+    const tremoloGain = audioCtx.createGain();
+    tremoloGain.gain.value = 1;
+    tremoloGain.connect(outGain);
 
-    updateDroneFrequency();
-    droneOsc1.start();
-    droneOsc2.start();
+    const tremoloLfo = audioCtx.createOscillator();
+    tremoloLfo.type = 'sine';
+    tremoloLfo.frequency.value = TUNE.DRONE_TREMOLO_RATE;
+    const tremoloDepthGain = audioCtx.createGain();
+    tremoloDepthGain.gain.value = 0;
+    tremoloLfo.connect(tremoloDepthGain);
+    tremoloDepthGain.connect(tremoloGain.gain);
+    tremoloLfo.start();
 
-    droneGain.gain.linearRampToValueAtTime(TUNE.SFX_DRONE_GAIN, audioCtx.currentTime + 1.5);
+    const highOsc = audioCtx.createOscillator();
+    highOsc.type = 'sine';
+    highOsc.frequency.value = 800;
+    const highGain = audioCtx.createGain();
+    highGain.gain.value = 0;
+    highOsc.connect(highGain);
+    highGain.connect(outGain);
+    highOsc.start();
+
+    return {
+      outGain, tremoloGain, tremoloLfo, tremoloDepthGain, highOsc, highGain,
+      sink: tremoloGain,          // galaxy-specific sources .connect() here
+      baseTremoloDepth: 0.15,
+      filterIntensityFn: null,    // (t) => void, set by the builder if it has its own filter to brighten
+      galaxyGainMult: 1,          // most stay at 1; Ice/Radiation/Wind are quieter by design
+      sources: [],                // oscillators/noise sources, stopped+disconnected on teardown
+      timers: []                  // setInterval ids (Electric's pulse, Acid/Gravity's drift cycle)
+    };
   }
 
-  function updateDroneFrequency() {
-    if (!droneOsc1 || !audioCtx) return;
-    const freq = TUNE.SFX_DRONE_BASE_FREQ + difficultyWave() * TUNE.SFX_DRONE_WAVE_RISE;
+  // THE MAW's galaxy -- Fire: low, thick, slightly detuned, breathing via a
+  // slow tremolo.
+  function buildFireVoice(s) {
+    const f = audioCtx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = TUNE.DRONE_FILTER_BASE; f.Q.value = 0.6;
+    f.connect(s.sink);
+    const base = 62;
+    const o1 = audioCtx.createOscillator(); o1.type = 'sine'; o1.frequency.value = base; o1.connect(f); o1.start();
+    const o2 = audioCtx.createOscillator(); o2.type = 'sine'; o2.frequency.value = base; o2.detune.value = 9; o2.connect(f); o2.start();
+    s.sources.push(o1, o2, f);
+    s.tremoloLfo.frequency.value = 0.4;
+    s.baseTremoloDepth = 0.4;
+    s.highOsc.frequency.value = base * 4;
+    s.filterIntensityFn = (t) => f.frequency.setTargetAtTime(TUNE.DRONE_FILTER_BASE + t * (TUNE.DRONE_FILTER_TENSE - TUNE.DRONE_FILTER_BASE), audioCtx.currentTime, 1.5);
+  }
+
+  // THE TRANSFER's galaxy -- Plasma: two tones a semitone apart, beating,
+  // restless (faster tremolo, never settling).
+  function buildPlasmaVoice(s) {
+    const f = audioCtx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = TUNE.DRONE_FILTER_BASE; f.Q.value = 0.5;
+    f.connect(s.sink);
+    const base = 90;
+    const semitone = Math.pow(2, 1 / 12);
+    const o1 = audioCtx.createOscillator(); o1.type = 'sine'; o1.frequency.value = base; o1.connect(f); o1.start();
+    const o2 = audioCtx.createOscillator(); o2.type = 'sine'; o2.frequency.value = base * semitone; o2.connect(f); o2.start();
+    s.sources.push(o1, o2, f);
+    s.tremoloLfo.frequency.value = 4.5;
+    s.baseTremoloDepth = 0.12;
+    s.highOsc.frequency.value = base * 2 * semitone;
+    s.filterIntensityFn = (t) => f.frequency.setTargetAtTime(TUNE.DRONE_FILTER_BASE + t * (TUNE.DRONE_FILTER_TENSE - TUNE.DRONE_FILTER_BASE), audioCtx.currentTime, 1.5);
+  }
+
+  // THE METRONOME's galaxy -- Electric: a sharp metallic pulse every 1.4s,
+  // silence between beats. The one voice that isn't a sustained tone at
+  // all, so it skips the tremolo/filter machinery entirely and just fires
+  // one-shot bursts straight into the shared sink on a timer.
+  function buildElectricVoice(s) {
+    s.baseTremoloDepth = 0;
+    s.highOsc.frequency.value = 1200;
+    function pulse() {
+      if (!audioCtx) return;
+      const t0 = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(420, t0);
+      osc.frequency.exponentialRampToValueAtTime(180, t0 + 0.18);
+      const hp = audioCtx.createBiquadFilter();
+      hp.type = 'highpass'; hp.frequency.value = 800;
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(1, t0 + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
+      osc.connect(hp); hp.connect(g); g.connect(s.sink);
+      osc.start(t0); osc.stop(t0 + 0.25);
+    }
+    pulse();
+    s.timers.push(setInterval(pulse, 1400));
+  }
+
+  // THE SOLVENT's galaxy -- Acid: sour (tritone, genuinely dissonant),
+  // slowly sliding downward forever. A one-way pitch slide can't be a
+  // native LFO (that just oscillates), so it's a periodic ramp-then-jump
+  // cycle -- the same illusion a Shepard tone relies on.
+  function buildAcidVoice(s) {
+    const f = audioCtx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = TUNE.DRONE_FILTER_BASE; f.Q.value = 1;
+    f.connect(s.sink);
+    const base = 100;
+    const tritone = Math.pow(2, 6 / 12);
+    const o1 = audioCtx.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = base; o1.connect(f); o1.start();
+    const o2 = audioCtx.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = base * tritone; o2.connect(f); o2.start();
+    s.sources.push(o1, o2, f);
+    s.tremoloLfo.frequency.value = 2;
+    s.baseTremoloDepth = 0.08;
+    s.highOsc.frequency.value = base * 3;
+    s.filterIntensityFn = (t) => f.frequency.setTargetAtTime(TUNE.DRONE_FILTER_BASE + t * (TUNE.DRONE_FILTER_TENSE - TUNE.DRONE_FILTER_BASE), audioCtx.currentTime, 1.5);
+    const dur = 14;
+    function driftCycle() {
+      if (!audioCtx) return;
+      const t0 = audioCtx.currentTime;
+      o1.frequency.cancelScheduledValues(t0); o2.frequency.cancelScheduledValues(t0);
+      o1.frequency.setValueAtTime(base, t0); o2.frequency.setValueAtTime(base * tritone, t0);
+      o1.frequency.exponentialRampToValueAtTime(base * 0.72, t0 + dur);
+      o2.frequency.exponentialRampToValueAtTime(base * tritone * 0.72, t0 + dur);
+    }
+    driftCycle();
+    s.timers.push(setInterval(driftCycle, dur * 1000));
+  }
+
+  // THE LATTICE's galaxy -- Crystal: high, clean, glassy, harmonic
+  // overtones (1x/2x/3x -- consonant with itself). The only galaxy that
+  // sounds beautiful, so tremolo stays almost off -- steady, not breathing.
+  function buildCrystalVoice(s) {
+    const f = audioCtx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 1800; f.Q.value = 0.3;
+    f.connect(s.sink);
+    const base = 330;
+    [1, 2, 3].forEach((ratio, i) => {
+      const o = audioCtx.createOscillator(); o.type = 'sine'; o.frequency.value = base * ratio;
+      const g = audioCtx.createGain(); g.gain.value = 1 / (i + 1.6);
+      o.connect(g); g.connect(f); o.start();
+      s.sources.push(o);
+    });
+    s.sources.push(f);
+    s.tremoloLfo.frequency.value = 3;
+    s.baseTremoloDepth = 0.05;
+    s.highOsc.frequency.value = base * 4;
+    s.filterIntensityFn = (t) => f.frequency.setTargetAtTime(1800 + t * 900, audioCtx.currentTime, 1.5);
+  }
+
+  // THE STILLNESS's galaxy -- Ice: almost nothing. A very low sub-bass,
+  // deliberately quieter than every other galaxy's own drone gain.
+  function buildIceVoice(s) {
+    const f = audioCtx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 120; f.Q.value = 0.4;
+    f.connect(s.sink);
+    const o = audioCtx.createOscillator(); o.type = 'sine'; o.frequency.value = 34; o.connect(f); o.start();
+    s.sources.push(o, f);
+    s.tremoloLfo.frequency.value = 0.2;
+    s.baseTremoloDepth = 0.05;
+    s.highOsc.frequency.value = 68;
+    s.filterIntensityFn = (t) => f.frequency.setTargetAtTime(120 + t * 260, audioCtx.currentTime, 1.5);
+    s.galaxyGainMult = 0.35;
+  }
+
+  // THE ABLATION's galaxy -- Radiation: a high-frequency hiss, just under
+  // irritating. Filtered noise, kept modest so it stays "subtly
+  // uncomfortable" rather than actually grating.
+  function buildRadiationVoice(s) {
+    const src = audioCtx.createBufferSource(); src.buffer = getNoiseBuffer(); src.loop = true;
+    const f = audioCtx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 4200; f.Q.value = 0.7;
+    src.connect(f); f.connect(s.sink); src.start();
+    s.sources.push(src, f);
+    s.tremoloLfo.frequency.value = 6;
+    s.baseTremoloDepth = 0.06;
+    s.highOsc.frequency.value = 6000;
+    s.filterIntensityFn = (t) => f.frequency.setTargetAtTime(4200 + t * 1800, audioCtx.currentTime, 1.5);
+    s.galaxyGainMult = 0.6;
+  }
+
+  // THE LENSING's galaxy -- Gravity: everything pitched slowly downward,
+  // continuously, as though falling in. Same drift-cycle trick as Acid,
+  // but an octave (consonant with itself) instead of a tritone -- the FALL
+  // is the drama here, not dissonance.
+  function buildGravityVoice(s) {
+    const f = audioCtx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = TUNE.DRONE_FILTER_BASE; f.Q.value = 0.5;
+    f.connect(s.sink);
+    const base = 70;
+    const o1 = audioCtx.createOscillator(); o1.type = 'sine'; o1.frequency.value = base; o1.connect(f); o1.start();
+    const o2 = audioCtx.createOscillator(); o2.type = 'sine'; o2.frequency.value = base * 2; o2.connect(f); o2.start();
+    s.sources.push(o1, o2, f);
+    s.tremoloLfo.frequency.value = 1.2;
+    s.baseTremoloDepth = 0.1;
+    s.highOsc.frequency.value = base * 4;
+    s.filterIntensityFn = (t) => f.frequency.setTargetAtTime(TUNE.DRONE_FILTER_BASE + t * (TUNE.DRONE_FILTER_TENSE - TUNE.DRONE_FILTER_BASE), audioCtx.currentTime, 1.5);
+    const dur = 20;
+    function driftCycle() {
+      if (!audioCtx) return;
+      const t0 = audioCtx.currentTime;
+      o1.frequency.cancelScheduledValues(t0); o2.frequency.cancelScheduledValues(t0);
+      o1.frequency.setValueAtTime(base, t0); o2.frequency.setValueAtTime(base * 2, t0);
+      o1.frequency.exponentialRampToValueAtTime(base * 0.6, t0 + dur);
+      o2.frequency.exponentialRampToValueAtTime(base * 2 * 0.6, t0 + dur);
+    }
+    driftCycle();
+    s.timers.push(setInterval(driftCycle, dur * 1000));
+  }
+
+  // THE DEADWEIGHT's galaxy -- Rock: heavy, slow, grinding, massive,
+  // unhurried. The deepest tremolo of any galaxy voice -- a slow, heavy
+  // pulse, not a shimmer.
+  function buildRockVoice(s) {
+    const f = audioCtx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 380; f.Q.value = 0.8;
+    f.connect(s.sink);
+    const base = 46;
+    const o1 = audioCtx.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = base; o1.connect(f); o1.start();
+    const o2 = audioCtx.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = base; o2.detune.value = 5; o2.connect(f); o2.start();
+    s.sources.push(o1, o2, f);
+    s.tremoloLfo.frequency.value = 0.22;
+    s.baseTremoloDepth = 0.55;
+    s.highOsc.frequency.value = base * 3;
+    s.filterIntensityFn = (t) => f.frequency.setTargetAtTime(380 + t * 900, audioCtx.currentTime, 1.5);
+  }
+
+  // THE SCATTERING's galaxy -- Wind: filtered noise, sweeping, never
+  // still, no pitch centre at all. The bandpass centre itself is swept by
+  // a dedicated slow LFO instead of the shared intensity filter, since
+  // "never still" IS its character, not something intensity should gate.
+  function buildWindVoice(s) {
+    const src = audioCtx.createBufferSource(); src.buffer = getNoiseBuffer(); src.loop = true;
+    const f = audioCtx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 700; f.Q.value = 1.4;
+    src.connect(f); f.connect(s.sink); src.start();
+    const sweepLfo = audioCtx.createOscillator(); sweepLfo.type = 'sine'; sweepLfo.frequency.value = 0.08;
+    const sweepDepth = audioCtx.createGain(); sweepDepth.gain.value = 550;
+    sweepLfo.connect(sweepDepth); sweepDepth.connect(f.frequency);
+    sweepLfo.start();
+    s.sources.push(src, f, sweepLfo, sweepDepth);
+    s.tremoloLfo.frequency.value = 0.3;
+    s.baseTremoloDepth = 0.15;
+    s.galaxyGainMult = 0.7;
+  }
+
+  const DRONE_BUILDERS = [
+    buildFireVoice, buildPlasmaVoice, buildElectricVoice, buildAcidVoice, buildCrystalVoice,
+    buildIceVoice, buildRadiationVoice, buildGravityVoice, buildRockVoice, buildWindVoice
+  ];
+
+  // On a boss wave: the drone drops out and is replaced by something
+  // heavier -- low, slow, fixed (not wave-intensity-scaled, since a boss
+  // wave doesn't advance further waves while it's alive).
+  function buildBossVoice(s) {
+    const f = audioCtx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 260; f.Q.value = 0.6;
+    f.connect(s.sink);
+    const o1 = audioCtx.createOscillator(); o1.type = 'sine'; o1.frequency.value = TUNE.DRONE_BOSS_FREQ; o1.connect(f); o1.start();
+    const o2 = audioCtx.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = TUNE.DRONE_BOSS_FREQ * 2; o2.detune.value = -8; o2.connect(f); o2.start();
+    s.sources.push(o1, o2, f);
+    s.tremoloLfo.frequency.value = TUNE.DRONE_BOSS_PULSE_RATE;
+    s.baseTremoloDepth = 0.6;
+    s.highOsc.frequency.value = TUNE.DRONE_BOSS_FREQ * 6;
+    s.galaxyGainMult = TUNE.DRONE_BOSS_GAIN / TUNE.DRONE_GAIN;
+  }
+
+  function teardownDroneScaffold(s) {
+    if (!s || !audioCtx) return;
     const t = audioCtx.currentTime;
-    droneOsc1.frequency.setTargetAtTime(freq, t, 0.8);
-    droneOsc2.frequency.setTargetAtTime(freq * 1.5, t, 0.8);
+    try {
+      s.outGain.gain.cancelScheduledValues(t);
+      s.outGain.gain.setValueAtTime(s.outGain.gain.value, t);
+      s.outGain.gain.linearRampToValueAtTime(0, t + TUNE.DRONE_FADE_S * 0.5);
+    } catch (e) {}
+    const stopAt = t + TUNE.DRONE_FADE_S * 0.5 + 0.1;
+    for (const id of s.timers) clearInterval(id);
+    for (const node of s.sources) {
+      try { if (node.stop) node.stop(stopAt); } catch (e) {}
+    }
+    try { s.tremoloLfo.stop(stopAt); } catch (e) {}
+    try { s.highOsc.stop(stopAt); } catch (e) {}
+  }
+
+  function startDroneVoice(builderFn) {
+    ensureAudio();
+    if (!audioCtx) return;
+    const old = drone;
+    drone = createDroneScaffold();
+    builderFn(drone);
+    const t = audioCtx.currentTime;
+    drone.outGain.gain.setValueAtTime(0, t);
+    drone.outGain.gain.linearRampToValueAtTime(TUNE.DRONE_GAIN * drone.galaxyGainMult, t + TUNE.DRONE_FADE_S);
+    if (old) teardownDroneScaffold(old);
+  }
+
+  // Persistent oscillators (not one-shots), started/stopped around a run
+  // rather than played per-frame -- same call sites as before this block
+  // (enterGalaxy, endless depth-advance): starts THIS galaxy's own voice.
+  function startDrone() {
+    ensureAudio();
+    if (!audioCtx) return;
+    droneMode = 'galaxy';
+    droneGalaxyIndex = currentGalaxyIndex();
+    startDroneVoice(DRONE_BUILDERS[droneGalaxyIndex]);
+    refreshDroneIntensity();
   }
 
   function stopDrone() {
-    if (!droneOsc1 || !audioCtx) return;
+    droneMode = null;
+    if (drone) teardownDroneScaffold(drone);
+    drone = null;
+  }
+
+  // Called from startWave() -- same call site the old updateDroneFrequency
+  // had. Detects a boss-wave (or galaxy) transition and swaps the whole
+  // voice only when the mode/galaxy actually changed (a fresh voice on
+  // every trash wave would just be a click); otherwise re-applies the
+  // wave-driven tension ramp to the voice already playing.
+  function refreshDroneIntensity() {
+    if (!drone || droneMode === null) return;
+    const isBossWave = wave >= TUNE.WAVES_PER_GALAXY;
+    const wantMode = isBossWave ? 'boss' : 'galaxy';
+    const wantGalaxy = currentGalaxyIndex();
+    if (wantMode !== droneMode || (wantMode === 'galaxy' && wantGalaxy !== droneGalaxyIndex)) {
+      droneMode = wantMode;
+      droneGalaxyIndex = wantGalaxy;
+      startDroneVoice(wantMode === 'boss' ? buildBossVoice : DRONE_BUILDERS[wantGalaxy]);
+      return;
+    }
+    if (wantMode !== 'galaxy') return;
+    // "By wave 9 it should be noticeably more tense than wave 1" -- t=0 at
+    // wave 1, t=1 at the last trash wave before the boss.
+    const maxTrashWave = Math.max(2, TUNE.WAVES_PER_GALAXY - 1);
+    const intensityT = Math.max(0, Math.min(1, (wave - 1) / (maxTrashWave - 1)));
     const t = audioCtx.currentTime;
-    droneGain.gain.cancelScheduledValues(t);
-    droneGain.gain.setValueAtTime(droneGain.gain.value, t);
-    droneGain.gain.linearRampToValueAtTime(0, t + 0.6);
-    droneOsc1.stop(t + 0.7);
-    droneOsc2.stop(t + 0.7);
-    droneOsc1 = null;
-    droneOsc2 = null;
-    droneGain = null;
+    drone.tremoloDepthGain.gain.setTargetAtTime(drone.baseTremoloDepth + intensityT * TUNE.DRONE_TREMOLO_TENSE_DEPTH, t, 1.2);
+    drone.highGain.gain.setTargetAtTime(intensityT * TUNE.DRONE_HIGH_LAYER_TENSE_GAIN * drone.galaxyGainMult, t, 1.2);
+    if (drone.filterIntensityFn) drone.filterIntensityFn(intensityT);
   }
 
   const SAVE_KEY = 'afterlight.save.v1';
@@ -1521,7 +1863,7 @@
       const spawnWindow = TUNE.WAVE_SPAWN_DURATION * TUNE.WAVE_SPAWN_FRACTION;
       waveSpawnInterval = spawnWindow / waveBudget;
     }
-    updateDroneFrequency();
+    refreshDroneIntensity();
   }
 
   function updateWave(dt) {
@@ -1674,6 +2016,7 @@
   let muteButtonBounds = null;
   let resumeButtonBounds = null;
   let abandonButtonBounds = null;
+  let volumeSliderBounds = [];
 
   const keys = { up: false, down: false, left: false, right: false };
 
@@ -1894,6 +2237,13 @@
       paused = false;
       killPlayer('abandon');
       return;
+    }
+    for (const b of volumeSliderBounds) {
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+        TUNE[b.key] = Math.max(0, Math.min(b.max, ((x - b.x) / b.w) * b.max));
+        saveTuneOverrides();
+        return;
+      }
     }
   }
 
@@ -3994,10 +4344,39 @@
       ctx.fillStyle = 'rgba(255, 200, 200, 0.9)';
       ctx.fillText('ABANDON RUN', canvas.width / 2, abandonButtonBounds.y + menuBtnH / 2 + 5);
       ctx.fillStyle = '#fff';
+
+      // Block 29 -- Master/Music/SFX: tap anywhere along a bar to set that
+      // level, same "position IS the value" interaction as a real slider,
+      // without needing drag-tracking. Persisted via the same TUNE-override
+      // mechanism the DEBUG panel already uses, so it survives a reload.
+      const sliderY0 = abandonButtonBounds.y + menuBtnH + 28;
+      const sliderW = menuBtnW;
+      const sliderH = 10;
+      const sliderGap = 30;
+      const sliders = [
+        ['MASTER', 'SFX_MASTER_GAIN', 1],
+        ['MUSIC', 'MUSIC_VOLUME', 1],
+        ['SFX', 'SFX_VOLUME', 1]
+      ];
+      volumeSliderBounds = [];
+      ctx.textAlign = 'left';
+      sliders.forEach(([label, key, max], i) => {
+        const y = sliderY0 + i * sliderGap;
+        ctx.font = '11px sans-serif';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.fillText(label, menuBtnX, y - 4);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.fillRect(menuBtnX, y, sliderW, sliderH);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.fillRect(menuBtnX, y, sliderW * Math.max(0, Math.min(1, TUNE[key] / max)), sliderH);
+        volumeSliderBounds.push({ x: menuBtnX, y: y - 10, w: sliderW, h: sliderH + 14, key, max });
+      });
+      ctx.textAlign = 'center';
     } else {
       muteButtonBounds = null;
       resumeButtonBounds = null;
       abandonButtonBounds = null;
+      volumeSliderBounds = [];
     }
 
     if (paused && draftOptions.length > 0) {
