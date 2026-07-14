@@ -76,19 +76,20 @@
   // nothing else on the hull reaches nearly that far, so the nose alone
   // makes the facing readable from across the screen. The widest points
   // (4 and 14, the wingtips) sit well behind the nose, not right against
-  // it, so the silhouette reads as a long dart, not a squat arrowhead:
-  // overall it's roughly 2.4x longer (nose to nacelle) than it is wide
-  // (wingtip to wingtip). Two thruster nacelle bumps at the REAR ONLY
-  // (points 6-7 and 11-12) either side of a notch cut between them
-  // (points 8-9-10). Bilateral (top/bottom) symmetry only -- never
-  // radial, so it can't read as a diamond or star.
+  // it, so the silhouette still reads as a dart, not a squat arrowhead --
+  // but only ~1.7x longer (nose to nacelle) than it is wide (wingtip to
+  // wingtip), not the much narrower needle an earlier pass overcorrected
+  // into. Two thruster nacelle bumps at the REAR ONLY (points 6-7 and
+  // 11-12) either side of a notch cut between them (points 8-9-10).
+  // Bilateral (top/bottom) symmetry only -- never radial, so it can't
+  // read as a diamond or star.
   const SHIP_WARDEN = [
-    [WARDEN_SIZE * 1.0, 0], [WARDEN_SIZE * 0.35, WARDEN_SIZE * 0.125], [WARDEN_SIZE * 0.1, WARDEN_SIZE * 0.2],
-    [WARDEN_SIZE * -0.25, WARDEN_SIZE * 0.35], [WARDEN_SIZE * -0.4, WARDEN_SIZE * 0.225], [WARDEN_SIZE * -0.5, WARDEN_SIZE * 0.25],
-    [WARDEN_SIZE * -0.65, WARDEN_SIZE * 0.15], [WARDEN_SIZE * -0.65, WARDEN_SIZE * 0.05], [WARDEN_SIZE * -0.5, 0],
-    [WARDEN_SIZE * -0.65, WARDEN_SIZE * -0.05], [WARDEN_SIZE * -0.65, WARDEN_SIZE * -0.15], [WARDEN_SIZE * -0.5, WARDEN_SIZE * -0.25],
-    [WARDEN_SIZE * -0.4, WARDEN_SIZE * -0.225], [WARDEN_SIZE * -0.25, WARDEN_SIZE * -0.35], [WARDEN_SIZE * 0.1, WARDEN_SIZE * -0.2],
-    [WARDEN_SIZE * 0.35, WARDEN_SIZE * -0.125]
+    [WARDEN_SIZE * 1.0, 0], [WARDEN_SIZE * 0.38, WARDEN_SIZE * 0.17], [WARDEN_SIZE * 0.13, WARDEN_SIZE * 0.26],
+    [WARDEN_SIZE * -0.2, WARDEN_SIZE * 0.45], [WARDEN_SIZE * -0.33, WARDEN_SIZE * 0.3], [WARDEN_SIZE * -0.42, WARDEN_SIZE * 0.32],
+    [WARDEN_SIZE * -0.55, WARDEN_SIZE * 0.2], [WARDEN_SIZE * -0.55, WARDEN_SIZE * 0.07], [WARDEN_SIZE * -0.42, 0],
+    [WARDEN_SIZE * -0.55, WARDEN_SIZE * -0.07], [WARDEN_SIZE * -0.55, WARDEN_SIZE * -0.2], [WARDEN_SIZE * -0.42, WARDEN_SIZE * -0.32],
+    [WARDEN_SIZE * -0.33, WARDEN_SIZE * -0.3], [WARDEN_SIZE * -0.2, WARDEN_SIZE * -0.45], [WARDEN_SIZE * 0.13, WARDEN_SIZE * -0.26],
+    [WARDEN_SIZE * 0.38, WARDEN_SIZE * -0.17]
   ];
 
   // THE HOLLOW. A hunched little mouth, not a ship -- wider (side to side,
@@ -3143,11 +3144,11 @@
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(WARDEN_SIZE * 1.0, 0);
-    ctx.lineTo(WARDEN_SIZE * -0.5, 0);
-    ctx.moveTo(WARDEN_SIZE * 0.1, WARDEN_SIZE * 0.2);
-    ctx.lineTo(WARDEN_SIZE * -0.4, WARDEN_SIZE * 0.225);
-    ctx.moveTo(WARDEN_SIZE * 0.1, WARDEN_SIZE * -0.2);
-    ctx.lineTo(WARDEN_SIZE * -0.4, WARDEN_SIZE * -0.225);
+    ctx.lineTo(WARDEN_SIZE * -0.42, 0);
+    ctx.moveTo(WARDEN_SIZE * 0.13, WARDEN_SIZE * 0.26);
+    ctx.lineTo(WARDEN_SIZE * -0.42, WARDEN_SIZE * 0.32);
+    ctx.moveTo(WARDEN_SIZE * 0.13, WARDEN_SIZE * -0.26);
+    ctx.lineTo(WARDEN_SIZE * -0.42, WARDEN_SIZE * -0.32);
     ctx.stroke();
     ctx.globalAlpha = 1;
 
