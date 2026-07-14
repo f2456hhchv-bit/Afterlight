@@ -235,7 +235,41 @@
     LEAP_FLOOD_PEAK: 0.25,         // fraction of the leap's duration where the colour flood peaks
     LEAP_FLOOD_LIGHTNESS: 55,      // %, HSL lightness of the galaxy colour at the flood's peak
     VIGNETTE_INNER_RADIUS_FRAC: 0.55,  // fraction of the screen radius left clear at the centre
-    BULLET_CORE_SCALE: 0.6             // core dot radius, as a fraction of BULLET_RADIUS
+    BULLET_CORE_SCALE: 0.6,            // core dot radius, as a fraction of BULLET_RADIUS
+
+    // Block 25 -- one physical failure mode per galaxy, keyed off GALAXY_DATA[i].element.
+    ELEMENT_FIRE_POOL_DURATION: 3,          // s, how long a burning pool left on death lasts
+    ELEMENT_FIRE_POOL_RADIUS: 34,           // px
+    ELEMENT_FIRE_POOL_DPS: 15,
+    ELEMENT_PLASMA_TRAIL_INTERVAL: 0.08,    // s between trail drops per enemy
+    ELEMENT_PLASMA_TRAIL_DURATION: 1,       // s a single trail segment lasts
+    ELEMENT_PLASMA_TRAIL_RADIUS: 12,        // px
+    ELEMENT_PLASMA_TRAIL_DPS: 20,
+    ELEMENT_CHAIN_RANGE: 160,               // px, max arc distance on death
+    ELEMENT_CHAIN_TARGETS: 2,               // nearest enemies struck
+    ELEMENT_CHAIN_DAMAGE: 8,
+    ELEMENT_CHAIN_BOLT_MS: 180,             // ms the lightning line itself is visible
+    ELEMENT_ACID_FIRE_RATE_PENALTY: 0.08,   // multiplicative, per stack, on the fire interval
+    ELEMENT_ACID_DURATION: 4,               // s per stack
+    ELEMENT_ACID_MAX_STACKS: 5,
+    ELEMENT_ACID_STACK_INTERVAL_MS: 500,    // min gap between new stacks from continuous contact
+    ELEMENT_SHARD_COUNT: 3,
+    ELEMENT_SHARD_SPEED: 260,
+    ELEMENT_SHARD_DAMAGE: 10,
+    ELEMENT_SHARD_RADIUS: 5,
+    ELEMENT_SHARD_LIFE: 1.2,                // s before an unspent shard despawns
+    ELEMENT_ICE_SLOW_PER_STACK: 0.15,       // multiplicative, per stack, on move speed
+    ELEMENT_ICE_DURATION: 2,                // s per stack
+    ELEMENT_ICE_MAX_STACKS: 6,
+    ELEMENT_ICE_STACK_INTERVAL_MS: 500,
+    ELEMENT_RADIATION_RADIUS: 70,           // px beyond the emitter's own radius
+    ELEMENT_RADIATION_DPS: 8,
+    ELEMENT_GRAVITY_RADIUS: 260,            // px, range at which pull starts
+    ELEMENT_GRAVITY_STRENGTH: 140,          // px/s at zero distance, falling off linearly to 0
+    ELEMENT_GRAVITY_MAX_PULL: 90,           // px/s, clamp on the SUMMED pull from every enemy
+    ELEMENT_ROCK_HP_MULT: 1.4,
+    ELEMENT_WIND_STRENGTH: 55,              // px/s, shared current felt by player and enemies alike
+    ELEMENT_WIND_PERIOD: 6                  // s per full rotation of the current's direction
   };
 
   const TUNE_DEFAULTS = { ...TUNE };
@@ -566,9 +600,18 @@
 
   // Which galaxy's hue is "live" right now, for the few spots (like impact
   // sparks) that need a plain r,g,b triplet rather than an hsl() string.
+  function currentGalaxyIndex() {
+    return endlessMode ? (endlessDepth - 1) % GALAXY_DATA.length : currentGalaxy;
+  }
+
   function currentHue() {
-    const idx = endlessMode ? (endlessDepth - 1) % GALAXY_DATA.length : currentGalaxy;
-    return GALAXY_DATA[idx].hue;
+    return GALAXY_DATA[currentGalaxyIndex()].hue;
+  }
+
+  // Block 25 -- one element per galaxy (GALAXY_DATA[i].element), read from
+  // update-side code that has no access to drawRun()'s local `pal`.
+  function currentElement() {
+    return GALAXY_DATA[currentGalaxyIndex()].element;
   }
 
   function hslToRgbTriplet(h, s, l) {
@@ -964,7 +1007,14 @@
     angle: -Math.PI / 2,
     hp: TUNE.PLAYER_MAX_HP,
     maxHp: TUNE.PLAYER_MAX_HP,
-    flashUntil: 0
+    flashUntil: 0,
+    // Block 25 -- Acid/Ice stacks, each entry an expiry timestamp (ms, vs
+    // currentTime). Throttled by lastAcidStackAt/lastIceStackAt so standing
+    // in continuous contact doesn't add a stack every single frame.
+    acidStackUntil: [],
+    iceStackUntil: [],
+    lastAcidStackAt: -Infinity,
+    lastIceStackAt: -Infinity
   };
   player.x = canvas.width / 2;
   player.y = canvas.height / 2;
@@ -1001,9 +1051,12 @@
     else { x = -pad; y = Math.random() * canvas.height; }
 
     const type = pickEnemyType(n);
+    // Rock: "40% more HP... they do not stagger" -- the HP half of that is
+    // a flat multiplier applied at spawn, same for every tier.
+    const rockMult = currentElement() === 'Rock' ? TUNE.ELEMENT_ROCK_HP_MULT : 1;
 
     if (type === 'lance') {
-      const hp = Math.floor(TUNE.LANCE_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE));
+      const hp = Math.floor(TUNE.LANCE_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE) * rockMult);
       const chargeSpeed = TUNE.LANCE_CHARGE_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE;
       return {
         type, x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.LANCE_RADIUS,
@@ -1012,7 +1065,7 @@
     }
 
     if (type === 'anchor') {
-      const hp = Math.floor(TUNE.ANCHOR_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE));
+      const hp = Math.floor(TUNE.ANCHOR_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE) * rockMult);
       const speed = (TUNE.ANCHOR_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE) * (0.9 + Math.random() * 0.2);
       return { type, x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.ANCHOR_RADIUS, speed, turn: TUNE.ANCHOR_TURN };
     }
@@ -1020,7 +1073,7 @@
     const baseSpeed = TUNE.ENEMY_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE;
     const speed = baseSpeed * (0.9 + Math.random() * 0.2);   // +/-10%
     const turn = TUNE.ENEMY_TURN * (0.85 + Math.random() * 0.3);
-    const hp = Math.floor(TUNE.ENEMY_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE));
+    const hp = Math.floor(TUNE.ENEMY_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE) * rockMult);
     return { type: 'hollow', x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.ENEMY_RADIUS, speed, turn };
   }
 
@@ -1037,7 +1090,8 @@
     else if (edge === 2) { x = Math.random() * canvas.width; y = canvas.height + pad; }
     else { x = -pad; y = Math.random() * canvas.height; }
     const growth = Math.max(0, n - TUNE.WAVES_PER_GALAXY);
-    const hp = Math.floor(TUNE.BOSS_HP * (1 + growth * TUNE.WAVE_HP_GROWTH_PER_WAVE));
+    const rockMult = currentElement() === 'Rock' ? TUNE.ELEMENT_ROCK_HP_MULT : 1;
+    const hp = Math.floor(TUNE.BOSS_HP * (1 + growth * TUNE.WAVE_HP_GROWTH_PER_WAVE) * rockMult);
     const speed = TUNE.BOSS_SPEED + growth * TUNE.WAVE_SPEED_PER_WAVE;
     return { x, y, vx: 0, vy: 0, angle: 0, hp, maxHp: hp, speed, radius: TUNE.BOSS_RADIUS, flashUntil: 0 };
   }
@@ -1065,7 +1119,8 @@
     kekuFragmentTellActive = true;
     kekuFragmentTellTimer = 0;
     const growth = Math.max(0, dw - TUNE.WAVES_PER_GALAXY);
-    kekuFragmentHp = Math.floor(TUNE.BOSS_HP * (1 + growth * TUNE.WAVE_HP_GROWTH_PER_WAVE) * TUNE.KEKU_HP_MULT);
+    const rockMult = currentElement() === 'Rock' ? TUNE.ELEMENT_ROCK_HP_MULT : 1;
+    kekuFragmentHp = Math.floor(TUNE.BOSS_HP * (1 + growth * TUNE.WAVE_HP_GROWTH_PER_WAVE) * TUNE.KEKU_HP_MULT * rockMult);
     stopDrone();   // "the music/drone cuts to silence"
   }
 
@@ -1193,6 +1248,16 @@
   let shakeStrength = 0;
 
   const motes = [];
+
+  // Block 25 -- elemental effect state. One galaxy, one element, but the
+  // arrays are unconditional so switching galaxies never leaves stale
+  // entries from a different element behind (restart()/leap already clear
+  // everything run-scoped; these follow the same rule).
+  const firePools = [];        // Fire: { x, y, until }
+  const plasmaTrails = [];     // Plasma: { x, y, until }
+  const lightningBolts = [];   // Electric: { x1, y1, x2, y2, born, life } -- VFX only, damage already applied
+  const shards = [];           // Crystal: { x, y, vx, vy, born }
+
   const initialSave = loadSave();
   let bankedMotes = initialSave.motes;
   let galaxies = initialSave.galaxies;
@@ -1339,8 +1404,16 @@
     player.maxHp = baseMaxHp;
     player.hp = baseMaxHp;
     player.flashUntil = 0;
+    player.acidStackUntil = [];
+    player.iceStackUntil = [];
+    player.lastAcidStackAt = -Infinity;
+    player.lastIceStackAt = -Infinity;
     enemies.length = 0;
     trail.length = 0;
+    firePools.length = 0;
+    plasmaTrails.length = 0;
+    lightningBolts.length = 0;
+    shards.length = 0;
     bullets.length = 0;
     fireTimer = 0;
     currentTarget = null;
@@ -1680,8 +1753,74 @@
     return { x: ix, y: iy };
   }
 
+  // Block 25 -- Acid/Ice stacks are arrays of expiry timestamps; pruning
+  // expired entries IS reading the current stack count, so every read site
+  // (the fire-rate multiplier, the speed multiplier, the HUD text) stays
+  // in sync with no separate decay pass needed.
+  function pruneStacks(arr) {
+    let i = 0;
+    while (i < arr.length) {
+      if (arr[i] <= currentTime) arr.splice(i, 1); else i++;
+    }
+    return arr.length;
+  }
+
+  function acidFireRateMult() {
+    return Math.pow(1 + TUNE.ELEMENT_ACID_FIRE_RATE_PENALTY, pruneStacks(player.acidStackUntil));
+  }
+
+  function iceSpeedMult() {
+    return Math.pow(1 - TUNE.ELEMENT_ICE_SLOW_PER_STACK, pruneStacks(player.iceStackUntil));
+  }
+
+  function addAcidStack() {
+    if (currentTime - player.lastAcidStackAt < TUNE.ELEMENT_ACID_STACK_INTERVAL_MS) return;
+    player.lastAcidStackAt = currentTime;
+    player.acidStackUntil.push(currentTime + TUNE.ELEMENT_ACID_DURATION * 1000);
+    if (player.acidStackUntil.length > TUNE.ELEMENT_ACID_MAX_STACKS) player.acidStackUntil.shift();
+  }
+
+  function addIceStack() {
+    if (currentTime - player.lastIceStackAt < TUNE.ELEMENT_ICE_STACK_INTERVAL_MS) return;
+    player.lastIceStackAt = currentTime;
+    player.iceStackUntil.push(currentTime + TUNE.ELEMENT_ICE_DURATION * 1000);
+    if (player.iceStackUntil.length > TUNE.ELEMENT_ICE_MAX_STACKS) player.iceStackUntil.shift();
+  }
+
+  // Nebula: one shared drifting current, slowly rotating, felt equally by
+  // the player and every enemy -- the point isn't to shove any one of them,
+  // it's that nobody's movement is fully their own in this galaxy.
+  function windVector() {
+    const angle = (currentTime / 1000 / TUNE.ELEMENT_WIND_PERIOD) * Math.PI * 2;
+    return { x: Math.cos(angle) * TUNE.ELEMENT_WIND_STRENGTH, y: Math.sin(angle) * TUNE.ELEMENT_WIND_STRENGTH };
+  }
+
+  // Black Hole: every enemy/boss within range pulls the player, falling off
+  // linearly to 0 at the edge of range. Summed pull is clamped so a dense
+  // crowd doesn't yank the player at an unplayable speed.
+  function gravityPullOnPlayer() {
+    let px = 0, py = 0;
+    const pull = (e) => {
+      const dx = e.x - player.x, dy = e.y - player.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 0.001 && dist < TUNE.ELEMENT_GRAVITY_RADIUS) {
+        const strength = TUNE.ELEMENT_GRAVITY_STRENGTH * (1 - dist / TUNE.ELEMENT_GRAVITY_RADIUS);
+        px += (dx / dist) * strength;
+        py += (dy / dist) * strength;
+      }
+    };
+    for (const e of enemies) pull(e);
+    if (boss) pull(boss);
+    const mag = Math.hypot(px, py);
+    if (mag > TUNE.ELEMENT_GRAVITY_MAX_PULL) {
+      px = (px / mag) * TUNE.ELEMENT_GRAVITY_MAX_PULL;
+      py = (py / mag) * TUNE.ELEMENT_GRAVITY_MAX_PULL;
+    }
+    return { x: px, y: py };
+  }
+
   function update(dt) {
-    const effectiveSpeed = TUNE.SPEED * Math.pow(TUNE.SHOP_VELOCITY_MULT, shop.velocity);
+    const effectiveSpeed = TUNE.SPEED * Math.pow(TUNE.SHOP_VELOCITY_MULT, shop.velocity) * iceSpeedMult();
     let targetX = 0;
     let targetY = 0;
 
@@ -1720,6 +1859,21 @@
 
     player.x += player.vx * dt;
     player.y += player.vy * dt;
+
+    // Block 25 -- Wind/Gravity are positional drift, not added momentum:
+    // nudging x/y directly (rather than vx/vy) means they can't compound
+    // into a runaway velocity frame over frame, and they still fall inside
+    // the margin clamp just below like any other movement this frame.
+    const el = currentElement();
+    if (el === 'Wind') {
+      const w = windVector();
+      player.x += w.x * dt;
+      player.y += w.y * dt;
+    } else if (el === 'Gravity') {
+      const pull = gravityPullOnPlayer();
+      player.x += pull.x * dt;
+      player.y += pull.y * dt;
+    }
 
     if (player.x <= TUNE.MARGIN || player.x >= window.innerWidth - TUNE.MARGIN) {
       player.vx = 0;
@@ -1924,12 +2078,32 @@
 
   function updateEnemies(dt) {
     const grid = buildGrid();
+    const el = currentElement();
+    const w = el === 'Wind' ? windVector() : null;
 
     for (const enemy of enemies) {
       if (enemy.type === 'lance') {
         updateLanceEnemy(enemy, dt);
       } else {
         updateChaseEnemy(enemy, dt, grid);
+      }
+
+      // Nebula: the same current pushing the player pushes every enemy too.
+      if (w) {
+        enemy.x += w.x * dt;
+        enemy.y += w.y * dt;
+      }
+
+      // Radiation: standing within the aura hurts continuously, whether or
+      // not the player is actually touching the enemy.
+      if (el === 'Radiation' && state === STATE.RUN) {
+        const rdist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+        if (rdist < TUNE.ELEMENT_RADIATION_RADIUS + enemy.radius) {
+          player.hp -= TUNE.ELEMENT_RADIATION_DPS * dt;
+          player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
+          sfxPlayerHit();
+          if (player.hp <= 0 && state === STATE.RUN) killPlayer('enemy');
+        }
       }
 
       const touchDist = TUNE.PLAYER_RADIUS + enemy.radius;
@@ -1948,7 +2122,12 @@
         player.hp -= TUNE.CONTACT_DPS * dt;
         player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
         sfxPlayerHit();
-        if (player.hp <= 0) {
+        if (el === 'Acid') addAcidStack();
+        if (el === 'Ice') addIceStack();
+        // Radiation above can already have killed the player this same
+        // frame (a separate damage source in this same loop) -- guard
+        // against calling killPlayer twice, which would double-bank motes.
+        if (player.hp <= 0 && state === STATE.RUN) {
           killPlayer('enemy');
         }
       }
@@ -1967,8 +2146,24 @@
       boss.angle = Math.atan2(dy, dx);
     }
 
-    boss.x += boss.vx * dt;
-    boss.y += boss.vy * dt;
+    // Block 25 -- the element applies to every enemy in the galaxy,
+    // including the boss: same Wind current, same Radiation aura, same
+    // Acid/Ice stacks on contact.
+    const el = currentElement();
+    if (el === 'Wind') {
+      const w = windVector();
+      boss.x += w.x * dt;
+      boss.y += w.y * dt;
+    }
+    if (el === 'Radiation' && state === STATE.RUN) {
+      const rdist = Math.hypot(boss.x - player.x, boss.y - player.y);
+      if (rdist < TUNE.ELEMENT_RADIATION_RADIUS + boss.radius) {
+        player.hp -= TUNE.ELEMENT_RADIATION_DPS * dt;
+        player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
+        sfxPlayerHit();
+        if (player.hp <= 0 && state === STATE.RUN) killPlayer('boss');
+      }
+    }
 
     const touchDist = TUNE.PLAYER_RADIUS + boss.radius;
     const pdx = boss.x - player.x;
@@ -1986,7 +2181,9 @@
       player.hp -= (boss.isFragment ? TUNE.KEKU_DPS : TUNE.BOSS_DPS) * dt;
       player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
       sfxPlayerHit();
-      if (player.hp <= 0) {
+      if (el === 'Acid') addAcidStack();
+      if (el === 'Ice') addIceStack();
+      if (player.hp <= 0 && state === STATE.RUN) {
         killPlayer('boss');
       }
     }
@@ -2046,6 +2243,129 @@
     }
     for (let i = particles.length - 1; i >= 0; i--) {
       if (currentTime - particles[i].born >= particles[i].life) particles.splice(i, 1);
+    }
+  }
+
+  // Block 25 -- the part of a regular (non-boss) kill's reward that a
+  // chain-killed enemy also needs (motes, wave count, sound), split out of
+  // the main bullet-hit death block so applyElementalDeathEffect's Electric
+  // branch can grant it too without duplicating the boss-transition logic.
+  function regularEnemyDeathRewards(enemy) {
+    sfxKill();
+    motes.push({ x: enemy.x, y: enemy.y, speed: 0 });
+    waveKilled++;
+  }
+
+  function spawnDeathBurst(x, y) {
+    shakeStrength = TUNE.SHAKE_KILL;
+    const burstColor = hslToRgbTriplet(currentHue(), 0.8, 0.6);
+    const count = 6 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const burstSpeed = 60 + Math.random() * 80;
+      spawnParticle(x, y, Math.cos(angle) * burstSpeed, Math.sin(angle) * burstSpeed, TUNE.DEATH_BURST_MS, burstColor, 2.5);
+    }
+    if (navigator.vibrate) navigator.vibrate(10);
+  }
+
+  // Fires once, at the moment `entity` dies. `viaChain` is only true for a
+  // target killed BY an Electric chain -- it exists purely to stop that
+  // chain from re-triggering itself and cascading unboundedly; every other
+  // element doesn't care and ignores it.
+  function applyElementalDeathEffect(entity, viaChain) {
+    const el = currentElement();
+
+    if (el === 'Fire') {
+      firePools.push({ x: entity.x, y: entity.y, until: currentTime + TUNE.ELEMENT_FIRE_POOL_DURATION * 1000 });
+    } else if (el === 'Electric' && !viaChain) {
+      const targets = enemies.filter((e) => e !== entity && !e.dead);
+      targets.sort((a, b) => Math.hypot(a.x - entity.x, a.y - entity.y) - Math.hypot(b.x - entity.x, b.y - entity.y));
+      for (const t of targets.slice(0, TUNE.ELEMENT_CHAIN_TARGETS)) {
+        if (Math.hypot(t.x - entity.x, t.y - entity.y) > TUNE.ELEMENT_CHAIN_RANGE) continue;
+        lightningBolts.push({ x1: entity.x, y1: entity.y, x2: t.x, y2: t.y, born: currentTime, life: TUNE.ELEMENT_CHAIN_BOLT_MS });
+        t.hp -= TUNE.ELEMENT_CHAIN_DAMAGE;
+        t.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
+        if (t.hp <= 0 && !t.dead) {
+          // "Free chain kills" -- a regular death, single-hop only (never
+          // re-chains, never touches the boss-transition branch since a
+          // chain target is always drawn from `enemies`, never `boss`).
+          t.dead = true;
+          spawnDeathBurst(t.x, t.y);
+          regularEnemyDeathRewards(t);
+        }
+      }
+    } else if (el === 'Crystal') {
+      for (let i = 0; i < TUNE.ELEMENT_SHARD_COUNT; i++) {
+        const angle = (Math.PI * 2 / TUNE.ELEMENT_SHARD_COUNT) * i + Math.random() * 0.5;
+        shards.push({
+          x: entity.x, y: entity.y,
+          vx: Math.cos(angle) * TUNE.ELEMENT_SHARD_SPEED,
+          vy: Math.sin(angle) * TUNE.ELEMENT_SHARD_SPEED,
+          born: currentTime
+        });
+      }
+    }
+  }
+
+  // Everything elemental that isn't tied to a discrete kill or contact
+  // event: ground hazards (Fire/Plasma) ticking damage while the player
+  // stands in them, Crystal shards flying and expiring, Radiation's aura,
+  // and decaying the purely-visual lightning bolts. Runs every RUN frame.
+  function updateElementalEffects(dt) {
+    for (let i = firePools.length - 1; i >= 0; i--) {
+      const pool = firePools[i];
+      if (currentTime >= pool.until) { firePools.splice(i, 1); continue; }
+      if (Math.hypot(player.x - pool.x, player.y - pool.y) < TUNE.ELEMENT_FIRE_POOL_RADIUS) {
+        player.hp -= TUNE.ELEMENT_FIRE_POOL_DPS * dt;
+        player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
+        sfxPlayerHit();
+        if (player.hp <= 0 && state === STATE.RUN) killPlayer('enemy');
+      }
+    }
+
+    if (currentElement() === 'Plasma') {
+      for (const enemy of enemies) {
+        enemy.plasmaTimer = (enemy.plasmaTimer || 0) - dt;
+        if (enemy.plasmaTimer <= 0) {
+          enemy.plasmaTimer = TUNE.ELEMENT_PLASMA_TRAIL_INTERVAL;
+          plasmaTrails.push({ x: enemy.x, y: enemy.y, until: currentTime + TUNE.ELEMENT_PLASMA_TRAIL_DURATION * 1000 });
+        }
+      }
+      if (boss) {
+        boss.plasmaTimer = (boss.plasmaTimer || 0) - dt;
+        if (boss.plasmaTimer <= 0) {
+          boss.plasmaTimer = TUNE.ELEMENT_PLASMA_TRAIL_INTERVAL;
+          plasmaTrails.push({ x: boss.x, y: boss.y, until: currentTime + TUNE.ELEMENT_PLASMA_TRAIL_DURATION * 1000 });
+        }
+      }
+    }
+    for (let i = plasmaTrails.length - 1; i >= 0; i--) {
+      const seg = plasmaTrails[i];
+      if (currentTime >= seg.until) { plasmaTrails.splice(i, 1); continue; }
+      if (Math.hypot(player.x - seg.x, player.y - seg.y) < TUNE.ELEMENT_PLASMA_TRAIL_RADIUS) {
+        player.hp -= TUNE.ELEMENT_PLASMA_TRAIL_DPS * dt;
+        player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
+        sfxPlayerHit();
+        if (player.hp <= 0 && state === STATE.RUN) killPlayer('enemy');
+      }
+    }
+
+    for (let i = shards.length - 1; i >= 0; i--) {
+      const s = shards[i];
+      if ((currentTime - s.born) / 1000 >= TUNE.ELEMENT_SHARD_LIFE) { shards.splice(i, 1); continue; }
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      if (Math.hypot(player.x - s.x, player.y - s.y) < TUNE.PLAYER_RADIUS + TUNE.ELEMENT_SHARD_RADIUS) {
+        shards.splice(i, 1);
+        player.hp -= TUNE.ELEMENT_SHARD_DAMAGE;
+        player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
+        sfxPlayerHit();
+        if (player.hp <= 0 && state === STATE.RUN) killPlayer('enemy');
+      }
+    }
+
+    for (let i = lightningBolts.length - 1; i >= 0; i--) {
+      if (currentTime - lightningBolts[i].born >= lightningBolts[i].life) lightningBolts.splice(i, 1);
     }
   }
 
@@ -2249,7 +2569,7 @@
 
   function updateBullets(dt) {
     fireTimer += dt;
-    const effectiveFireRate = TUNE.FIRE_RATE * Math.pow(TUNE.FIRE_RATE_MULT, upgradeLevels.fireRate) * Math.pow(TUNE.SHOP_CADENCE_MULT, shop.cadence);
+    const effectiveFireRate = TUNE.FIRE_RATE * Math.pow(TUNE.FIRE_RATE_MULT, upgradeLevels.fireRate) * Math.pow(TUNE.SHOP_CADENCE_MULT, shop.cadence) * acidFireRateMult();
     if (fireTimer >= effectiveFireRate) {
       const target = acquireTarget();
       if (target) {
@@ -2341,9 +2661,12 @@
         closest.hp -= TUNE.BULLET_DAMAGE * Math.pow(TUNE.DAMAGE_MULT, upgradeLevels.damage) * Math.pow(TUNE.SHOP_CALIBRE_MULT, shop.calibre);
         closest.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
 
-        const blen = Math.hypot(bullet.vx, bullet.vy) || 1;
-        closest.x += (bullet.vx / blen) * TUNE.KNOCKBACK;
-        closest.y += (bullet.vy / blen) * TUNE.KNOCKBACK;
+        // Rock: "immune to knockback... they do not stagger."
+        if (currentElement() !== 'Rock') {
+          const blen = Math.hypot(bullet.vx, bullet.vy) || 1;
+          closest.x += (bullet.vx / blen) * TUNE.KNOCKBACK;
+          closest.y += (bullet.vy / blen) * TUNE.KNOCKBACK;
+        }
 
         // Sparks off the enemy's own light, not white -- white is sacred.
         spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, hslToRgbTriplet(currentHue(), 0.7, 0.75), 3);
@@ -2372,6 +2695,12 @@
 
           if (navigator.vibrate) navigator.vibrate(10);
 
+          // Block 25 -- "applies to EVERY enemy in that galaxy, including
+          // the boss": this runs before the boss-transition branch below,
+          // so a boss kill still leaves its fire pool / chains its
+          // lightning / shatters its shards at its death position first.
+          applyElementalDeathEffect(closest);
+
           if (closest === boss) {
             sfxBossDies();
             if (endlessMode) {
@@ -2391,6 +2720,14 @@
               }
               endlessDepth++;
               if (endlessDepth > bestDepth) bestDepth = endlessDepth;
+              // Endless never passes through restart() between depths (no
+              // map, no break) -- clear the previous depth's element hazards
+              // by hand, or a Fire pool could sit there rendering in the
+              // NEW depth's colour, implying a hazard that isn't real there.
+              firePools.length = 0;
+              plasmaTrails.length = 0;
+              lightningBolts.length = 0;
+              shards.length = 0;
               saveBank();
               startWave(1);
               startDrone();   // resume -- the tell silenced it; harmless no-op if it never stopped
@@ -2562,6 +2899,45 @@
     // need to be reset by hand afterward.
     ctx.globalCompositeOperation = 'lighter';
 
+    // Block 25 -- elemental ground hazards, drawn first so they read as
+    // background: something you stand IN, underneath every entity, rather
+    // than an entity themselves. Always the galaxy's own colour.
+    for (const pool of firePools) {
+      const remain = Math.max(0, (pool.until - currentTime) / (TUNE.ELEMENT_FIRE_POOL_DURATION * 1000));
+      const pulse = 0.7 + 0.3 * Math.sin(currentTime / 90);
+      ctx.fillStyle = pal.bossAccent;
+      ctx.globalAlpha = 0.3 * remain * pulse;
+      ctx.beginPath();
+      ctx.arc(pool.x, pool.y, TUNE.ELEMENT_FIRE_POOL_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    for (const seg of plasmaTrails) {
+      const remain = Math.max(0, (seg.until - currentTime) / (TUNE.ELEMENT_PLASMA_TRAIL_DURATION * 1000));
+      ctx.fillStyle = pal.tier2;
+      ctx.globalAlpha = 0.4 * remain;
+      ctx.beginPath();
+      ctx.arc(seg.x, seg.y, TUNE.ELEMENT_PLASMA_TRAIL_RADIUS * Math.max(0.35, remain), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    if (pal.element === 'Radiation') {
+      ctx.strokeStyle = pal.lightAccent;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.22;
+      for (const enemy of enemies) {
+        ctx.beginPath();
+        ctx.arc(enemy.x, enemy.y, TUNE.ELEMENT_RADIATION_RADIUS + enemy.radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (boss) {
+        ctx.beginPath();
+        ctx.arc(boss.x, boss.y, TUNE.ELEMENT_RADIATION_RADIUS + boss.radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
     // A tapering stroked line through the trail history, not a stack of
     // filled dots -- a dot sitting at the newest (most opaque, widest)
     // sample reads as a second object under the hull. A thin line has
@@ -2651,6 +3027,26 @@
       ctx.stroke();
 
       ctx.restore();
+    }
+
+    // Block 25 -- Electric's chain (a fading line per arc) and Crystal's
+    // shards (small flying fragments), both galaxy-coloured.
+    for (const bolt of lightningBolts) {
+      const age = (currentTime - bolt.born) / bolt.life;
+      ctx.strokeStyle = pal.bossAccent;
+      ctx.globalAlpha = Math.max(0, 1 - age);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(bolt.x1, bolt.y1);
+      ctx.lineTo(bolt.x2, bolt.y2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    for (const s of shards) {
+      ctx.fillStyle = pal.tier3;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, TUNE.ELEMENT_SHARD_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     // Bullets: hot white streaks -- the Warden's own fire, an extension of
@@ -2800,6 +3196,26 @@
         ctx.fillText(NAMES.boss.toUpperCase(), canvas.width / 2, bossBarY + bossBarHeight + 14);
         ctx.textAlign = 'left';
       }
+    }
+
+    // Block 25 -- Acid/Ice are invisible otherwise ("if the player cannot
+    // see why they are taking damage, the effect has failed"): a plain
+    // stack count, in the galaxy's own colour, is the whole readability fix.
+    const acidStacks = player.acidStackUntil.length;
+    const iceStacks = player.iceStackUntil.length;
+    if (acidStacks > 0 || iceStacks > 0) {
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 12px sans-serif';
+      let statusY = endlessMode ? 50 : 20 + 16 + 56;
+      ctx.fillStyle = pal.tier2;
+      if (acidStacks > 0) {
+        ctx.fillText('CORRODED x' + acidStacks, 20, statusY);
+        statusY += 16;
+      }
+      if (iceStacks > 0) {
+        ctx.fillText('SLOWED x' + iceStacks, 20, statusY);
+      }
+      ctx.fillStyle = '#fff';
     }
 
     if (!paused) {
@@ -3420,6 +3836,7 @@
         if (!kekuFragmentTellActive) updateEnemies(dt);
         updateBoss(dt);
         updateBullets(dt);
+        updateElementalEffects(dt);
         updateParticles(dt);
         updateMotes(dt);
         if (shakeStrength > 0) {
