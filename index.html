@@ -48,6 +48,21 @@
 
   try {
 
+  // THE WARDEN -- plain editable vertex list, kept at the very top of the
+  // file on purpose. Local space, nose on the +X axis, drawn with
+  // ctx.translate/rotate already applied (see the player draw call in
+  // drawRun()). Straight edges only -- built object, not an organic shape.
+  // Swept delta wings out to a wide tip, twin rear nacelle pods, and a
+  // notched tail cut between them (points 9-11). Deliberately large --
+  // this must be the biggest ordinary thing on screen, bigger than every
+  // enemy tier including the Anchor, so the Warden dominates the screen
+  // rather than getting lost in the swarm.
+  const SHIP_WARDEN = [
+    [34, 0], [16, 5], [4, 9], [0, 22], [-10, 14], [-14, 15], [-22, 11], [-22, 4],
+    [-14, 2], [-10, 0], [-14, -2], [-22, -4], [-22, -11], [-14, -15], [-10, -14],
+    [0, -22], [4, -9], [16, -5]
+  ];
+
   const DEBUG = true;
 
   const TUNE = {
@@ -526,16 +541,14 @@
     return Math.round((r + m) * 255) + ',' + Math.round((g + m) * 255) + ',' + Math.round((b + m) * 255);
   }
 
-  // Hand-designed ship outlines (Block "neon wireframe"). Local space, nose
-  // on the +X axis, drawn with ctx.translate/rotate already applied. Straight
-  // edges only -- built objects, not organic shapes. Each stroked as a closed
-  // polygon via strokeShipPath below; boss/Fragment share one shape scaled by
+  // Hand-designed enemy/boss ship outlines (Block "neon wireframe"). The
+  // Warden's own vertex list lives at the very top of the file instead --
+  // see there. Local space, nose on the +X axis, drawn with
+  // ctx.translate/rotate already applied. Straight edges only -- built
+  // objects, not organic shapes. Each stroked as a closed polygon via
+  // strokeShipPath below; boss/Fragment share one shape scaled by
   // boss.radius instead of a fixed point list, since the same silhouette has
   // to read at both a normal boss's size and the much larger Fragment's.
-  const SHIP_WARDEN = [
-    [20, 0], [9, 5], [4, 4], [2, 9], [-6, 11], [-4, 5], [-9, 4], [-12, 1],
-    [-9, 0], [-12, -1], [-9, -4], [-4, -5], [-6, -11], [2, -9], [4, -4], [9, -5]
-  ];
   const SHIP_HOLLOW = [
     [13, 0], [4, 3], [6, 7], [2, 5], [-4, 9], [-10, 4],
     [-10, -4], [-4, -9], [2, -5], [6, -7], [4, -3]
@@ -2509,13 +2522,20 @@
     // need to be reset by hand afterward.
     ctx.globalCompositeOperation = 'lighter';
 
-    for (let i = 0; i < trail.length; i++) {
-      const p = trail[i];
+    // A tapering stroked line through the trail history, not a stack of
+    // filled dots -- a dot sitting at the newest (most opaque, widest)
+    // sample reads as a second object under the hull. A thin line has
+    // nothing to read as separately from the ship it's converging into.
+    for (let i = 0; i < trail.length - 1; i++) {
+      const a = trail[i];
+      const b = trail[i + 1];
       const age = (i + 1) / trail.length;
-      ctx.fillStyle = `rgba(255, 255, 255, ${age * 0.35})`;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${age * 0.35})`;
+      ctx.lineWidth = 4 * age;
       ctx.beginPath();
-      ctx.arc(p.x, p.y - TUNE.THUMB_OFFSET, 6 * age, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(a.x, a.y - TUNE.THUMB_OFFSET);
+      ctx.lineTo(b.x, b.y - TUNE.THUMB_OFFSET);
+      ctx.stroke();
     }
 
     for (const enemy of enemies) {
@@ -2619,17 +2639,18 @@
     strokeShipPath(SHIP_WARDEN, '#fff', 1.5);
 
     // Panel lines -- surface detail, not part of the outline. A spine from
-    // nose to the tail notch, and two short struts marking the nacelle roots.
+    // nose to the tail notch, a crossbar marking the wing roots, and a
+    // second crossbar marking the nacelle bulkheads.
     ctx.strokeStyle = '#fff';
     ctx.globalAlpha = 0.5;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(20, 0);
-    ctx.lineTo(-9, 0);
-    ctx.moveTo(2, 9);
-    ctx.lineTo(2, -9);
-    ctx.moveTo(-4, 5);
-    ctx.lineTo(-4, -5);
+    ctx.moveTo(34, 0);
+    ctx.lineTo(-10, 0);
+    ctx.moveTo(0, 22);
+    ctx.lineTo(0, -22);
+    ctx.moveTo(-14, 15);
+    ctx.lineTo(-14, -15);
     ctx.stroke();
     ctx.globalAlpha = 1;
 
