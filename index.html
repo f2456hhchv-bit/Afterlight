@@ -292,7 +292,39 @@
     ELEMENT_GRAVITY_MAX_PULL: 90,           // px/s, clamp on the SUMMED pull from every enemy
     ELEMENT_ROCK_HP_MULT: 1.4,
     ELEMENT_WIND_STRENGTH: 55,              // px/s, shared current felt by player and enemies alike
-    ELEMENT_WIND_PERIOD: 6                  // s per full rotation of the current's direction
+    ELEMENT_WIND_PERIOD: 6,                 // s per full rotation of the current's direction
+
+    // Block 26 -- the ten heralds. HP multipliers are relative to BOSS_HP,
+    // tuned so each fight runs roughly 45-90s: tankier where the danger is
+    // mostly avoidance/timing (Metronome, Deadweight), leaner where the
+    // danger is positional pressure (Solvent, Ablation, Lensing).
+    HERALD_HP_MULT_MAW: 1.0,
+    HERALD_HP_MULT_TRANSFER: 1.0,
+    HERALD_HP_MULT_METRONOME: 1.3,
+    HERALD_HP_MULT_SOLVENT: 0.9,
+    HERALD_HP_MULT_LATTICE: 1.1,
+    HERALD_HP_MULT_STILLNESS: 1.0,
+    HERALD_HP_MULT_ABLATION: 0.9,
+    HERALD_HP_MULT_LENSING: 0.9,
+    HERALD_HP_MULT_DEADWEIGHT: 2.2,          // "Enormous HP" -- beyond the generic Rock +40%
+    HERALD_HP_MULT_SCATTERING: 1.0,
+
+    HERALD_MAW_TRAIL_INTERVAL: 0.15,         // s between fire pools dropped while it moves
+    HERALD_TRANSFER_SPLIT_FRAC: 0.5,         // hp fraction (of max) that triggers the split
+    HERALD_METRONOME_PULSE_PERIOD: 3.5,      // s, full cycle length
+    HERALD_METRONOME_VULN_WINDOW: 1.4,       // s of that cycle it's actually hittable
+    HERALD_SOLVENT_AURA_RADIUS: 220,         // px beyond its own radius -- corrodes without contact
+    HERALD_LATTICE_FACET_COUNT: 6,
+    HERALD_LATTICE_FACET_HITS: 4,            // hits on the SAME facet needed to break it
+    HERALD_STILLNESS_SELF_SLOW: 0.4,         // its own speed is multiplied by this
+    HERALD_ABLATION_AURA_RADIUS: 170,        // px beyond its own radius -- large and lethal
+    HERALD_ABLATION_AURA_DPS: 20,
+    HERALD_LENSING_PULL_RADIUS: 360,
+    HERALD_LENSING_PULL_STRENGTH: 280,
+    HERALD_LENSING_MAX_PULL: 150,
+    HERALD_SCATTERING_PUSH_STRENGTH: 65,     // px/s, constant push away from it
+    HERALD_SCATTERING_BULLET_DRIFT: 130,     // px/s^2, lateral drift applied to every live bullet
+    HERALD_TRANSFER_HALF_DPS_MULT: 0.6       // vs. BOSS_DPS, per half -- both touching at once ~= a normal boss
   };
 
   const TUNE_DEFAULTS = { ...TUNE };
@@ -578,6 +610,33 @@
     { star: 'Nebula', element: 'Wind', hue: 320 }
   ];
 
+  // Block 26 -- one herald per galaxy, index-matched to GALAXY_DATA (both
+  // run Fire/Plasma/Electric/Acid/Crystal/Ice/Radiation/Gravity/Rock/Wind
+  // in the same order). These are the ten boss fights -- not reskins of a
+  // single generic boss, each has its own name, shape and mechanic below.
+  const HERALD_MAW = 0;
+  const HERALD_TRANSFER = 1;
+  const HERALD_METRONOME = 2;
+  const HERALD_SOLVENT = 3;
+  const HERALD_LATTICE = 4;
+  const HERALD_STILLNESS = 5;
+  const HERALD_ABLATION = 6;
+  const HERALD_LENSING = 7;
+  const HERALD_DEADWEIGHT = 8;
+  const HERALD_SCATTERING = 9;
+  const HERALDS = [
+    { name: 'THE MAW' },
+    { name: 'THE TRANSFER' },
+    { name: 'THE METRONOME' },
+    { name: 'THE SOLVENT' },
+    { name: 'THE LATTICE' },
+    { name: 'THE STILLNESS' },
+    { name: 'THE ABLATION' },
+    { name: 'THE LENSING' },
+    { name: 'THE DEADWEIGHT' },
+    { name: 'THE SCATTERING' }
+  ];
+
   // Neon wireframe art direction: the void is always pure #000, never a
   // galaxy-tinted gradient -- so this no longer returns a `background`
   // field at all. Light must punch out of absolute black; nothing sits
@@ -664,6 +723,128 @@
       [r * -0.4, r], [r * -1, r * 0.85], [r * -1, r * -0.85], [r * -0.4, r * -1],
       [r * 0.1, r * -0.75], [r * 0.7, r * -0.95], [r * 0.5, r * -0.6]
     ];
+  }
+
+  // Block 26 -- one silhouette per herald, all scaled by boss.radius the
+  // same way bossShipPoints is. THE MAW keeps the original mouth-ring
+  // shape above (it's also the Keku Fragment's shape, unchanged) --
+  // everything from here down is new and distinct from it and from each
+  // other, per "each is a distinct FIGHT, not a reskin."
+
+  // THE TRANSFER -- two lobes joined by a narrow waist, foreshadowing the
+  // split: it visibly reads as "this is already two things" before it
+  // ever actually divides.
+  function heraldTransferPoints(r) {
+    return [
+      [r * 0.9, 0], [r * 0.6, r * 0.5], [r * 0.15, r * 0.35], [r * 0.15, r * 0.9], [r * -0.15, r * 0.9],
+      [r * -0.15, r * 0.35], [r * -0.6, r * 0.5], [r * -0.9, 0], [r * -0.6, -r * 0.5], [r * -0.15, -r * 0.35],
+      [r * -0.15, -r * 0.9], [r * 0.15, -r * 0.9], [r * 0.15, -r * 0.35], [r * 0.6, -r * 0.5]
+    ];
+  }
+
+  // THE METRONOME -- a tall vertical diamond, top and bottom spikes like a
+  // pendulum at rest between ticks.
+  function heraldMetronomePoints(r) {
+    return [
+      [0, -r], [r * 0.35, -r * 0.3], [r * 0.9, 0], [r * 0.35, r * 0.3],
+      [0, r], [-r * 0.35, r * 0.3], [-r * 0.9, 0], [-r * 0.35, -r * 0.3]
+    ];
+  }
+
+  // THE SOLVENT -- a melting blob, asymmetric drip-points sagging downward.
+  function heraldSolventPoints(r) {
+    return [
+      [r * 0.7, -r * 0.3], [r * 0.9, r * 0.1], [r * 0.5, r * 0.5], [r * 0.6, r * 0.9], [r * 0.3, r * 0.6],
+      [r * 0.1, r * 1.0], [-r * 0.1, r * 0.6], [-r * 0.3, r * 0.9], [-r * 0.5, r * 0.5], [-r * 0.9, r * 0.1],
+      [-r * 0.7, -r * 0.3], [-r * 0.3, -r * 0.7], [0, -r * 0.9], [r * 0.3, -r * 0.7]
+    ];
+  }
+
+  // THE LATTICE -- a faceted crystal, alternating long/short radii around
+  // HERALD_LATTICE_FACET_COUNT sides. The one shape here allowed to read
+  // as radial/star-like -- it is, literally, a crystal, not a ship.
+  function heraldLatticePoints(r) {
+    const sides = TUNE.HERALD_LATTICE_FACET_COUNT;
+    const pts = [];
+    for (let i = 0; i < sides * 2; i++) {
+      const ang = (Math.PI * 2 / (sides * 2)) * i;
+      const rad = (i % 2 === 0) ? r : r * 0.68;
+      pts.push([Math.cos(ang) * rad, Math.sin(ang) * rad]);
+    }
+    return pts;
+  }
+
+  // THE STILLNESS -- a plain, solid hexagon. Nothing jagged, nothing
+  // urgent -- it reads as inert, geometric, frozen.
+  function heraldStillnessPoints(r) {
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      const ang = (Math.PI * 2 / 6) * i;
+      pts.push([Math.cos(ang) * r, Math.sin(ang) * r]);
+    }
+    return pts;
+  }
+
+  // THE ABLATION -- an irregular, unevenly eroded ring, as if bitten away
+  // in patches rather than cleanly cut.
+  function heraldAblationPoints(r) {
+    return [
+      [r, 0], [r * 0.6, r * 0.3], [r * 0.75, r * 0.6], [r * 0.3, r * 0.55], [r * 0.15, r * 0.9],
+      [-r * 0.2, r * 0.6], [-r * 0.6, r * 0.75], [-r * 0.5, r * 0.3], [-r * 0.9, r * 0.15], [-r * 0.65, -r * 0.25],
+      [-r * 0.9, -r * 0.5], [-r * 0.4, -r * 0.55], [-r * 0.3, -r * 0.9], [r * 0.1, -r * 0.5], [r * 0.5, -r * 0.7],
+      [r * 0.4, -r * 0.25]
+    ];
+  }
+
+  // THE LENSING -- a squashed, rippled ellipse, like a ring of light bent
+  // around something -- the inner warp-point ring is drawn separately at
+  // the call site, off-centre, not concentric.
+  function heraldLensingPoints(r) {
+    const n = 14;
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const ang = (Math.PI * 2 / n) * i;
+      const warp = 1 + 0.25 * Math.sin(ang * 3);
+      pts.push([Math.cos(ang) * r * warp * 1.15, Math.sin(ang) * r * warp * 0.75]);
+    }
+    return pts;
+  }
+
+  // THE DEADWEIGHT -- a big, blunt, chunky boulder. No sharp points, no
+  // urgency -- it reads as mass, not a threat that reacts to you.
+  function heraldDeadweightPoints(r) {
+    return [
+      [r * 0.8, r * 0.5], [r, 0], [r * 0.8, -r * 0.5], [r * 0.3, -r * 0.9], [-r * 0.3, -r],
+      [-r * 0.8, -r * 0.6], [-r, 0], [-r * 0.8, r * 0.6], [-r * 0.3, r], [r * 0.3, r * 0.9]
+    ];
+  }
+
+  // THE SCATTERING -- torn and wispy, long thin trailing points streaming
+  // off one side like something being blown apart.
+  function heraldScatteringPoints(r) {
+    return [
+      [r, 0], [r * 0.5, r * 0.15], [r * 0.6, r * 0.5], [r * 0.2, r * 0.35], [r * 0.1, r * 0.8],
+      [-r * 0.1, r * 0.3], [-r * 0.5, r * 0.6], [-r * 0.3, r * 0.15], [-r * 0.9, r * 0.3], [-r * 0.5, -r * 0.05],
+      [-r * 1.1, -r * 0.15], [-r * 0.5, -r * 0.25], [-r * 0.8, -r * 0.6], [-r * 0.2, -r * 0.35], [-r * 0.15, -r * 0.75],
+      [r * 0.15, -r * 0.3], [r * 0.55, -r * 0.5], [r * 0.45, -r * 0.1]
+    ];
+  }
+
+  // Dispatcher -- undefined herald (the Keku Fragment never sets one)
+  // falls through to the original mouth-ring shape, same as THE MAW.
+  function heraldShipPoints(heraldIndex, r) {
+    switch (heraldIndex) {
+      case HERALD_TRANSFER: return heraldTransferPoints(r);
+      case HERALD_METRONOME: return heraldMetronomePoints(r);
+      case HERALD_SOLVENT: return heraldSolventPoints(r);
+      case HERALD_LATTICE: return heraldLatticePoints(r);
+      case HERALD_STILLNESS: return heraldStillnessPoints(r);
+      case HERALD_ABLATION: return heraldAblationPoints(r);
+      case HERALD_LENSING: return heraldLensingPoints(r);
+      case HERALD_DEADWEIGHT: return heraldDeadweightPoints(r);
+      case HERALD_SCATTERING: return heraldScatteringPoints(r);
+      default: return bossShipPoints(r);
+    }
   }
 
   // Wireframe body: a faint fill (so the shape reads as a solid body, not
@@ -1104,6 +1285,24 @@
   // its only value in story mode). Endless keeps calling this with an
   // ever-larger n as depth increases, so growth -- and boss HP/speed with it --
   // never stops climbing.
+  // Block 26 -- one HP multiplier per herald, read live off TUNE (not
+  // snapshotted) so the DEBUG panel's live tuning still works on these.
+  function heraldHpMult(heraldIndex) {
+    switch (heraldIndex) {
+      case HERALD_MAW: return TUNE.HERALD_HP_MULT_MAW;
+      case HERALD_TRANSFER: return TUNE.HERALD_HP_MULT_TRANSFER;
+      case HERALD_METRONOME: return TUNE.HERALD_HP_MULT_METRONOME;
+      case HERALD_SOLVENT: return TUNE.HERALD_HP_MULT_SOLVENT;
+      case HERALD_LATTICE: return TUNE.HERALD_HP_MULT_LATTICE;
+      case HERALD_STILLNESS: return TUNE.HERALD_HP_MULT_STILLNESS;
+      case HERALD_ABLATION: return TUNE.HERALD_HP_MULT_ABLATION;
+      case HERALD_LENSING: return TUNE.HERALD_HP_MULT_LENSING;
+      case HERALD_DEADWEIGHT: return TUNE.HERALD_HP_MULT_DEADWEIGHT;
+      case HERALD_SCATTERING: return TUNE.HERALD_HP_MULT_SCATTERING;
+      default: return 1;
+    }
+  }
+
   function spawnBoss(n) {
     const pad = 60;
     const edge = Math.floor(Math.random() * 4);
@@ -1113,10 +1312,18 @@
     else if (edge === 2) { x = Math.random() * canvas.width; y = canvas.height + pad; }
     else { x = -pad; y = Math.random() * canvas.height; }
     const growth = Math.max(0, n - TUNE.WAVES_PER_GALAXY);
-    const rockMult = currentElement() === 'Rock' ? TUNE.ELEMENT_ROCK_HP_MULT : 1;
-    const hp = Math.floor(TUNE.BOSS_HP * (1 + growth * TUNE.WAVE_HP_GROWTH_PER_WAVE) * rockMult);
-    const speed = TUNE.BOSS_SPEED + growth * TUNE.WAVE_SPEED_PER_WAVE;
-    return { x, y, vx: 0, vy: 0, angle: 0, hp, maxHp: hp, speed, radius: TUNE.BOSS_RADIUS, flashUntil: 0 };
+    const herald = currentGalaxyIndex();
+    const hp = Math.floor(TUNE.BOSS_HP * (1 + growth * TUNE.WAVE_HP_GROWTH_PER_WAVE) * heraldHpMult(herald));
+    let speed = TUNE.BOSS_SPEED + growth * TUNE.WAVE_SPEED_PER_WAVE;
+    // THE STILLNESS: "slows everything, including itself."
+    if (herald === HERALD_STILLNESS) speed *= TUNE.HERALD_STILLNESS_SELF_SLOW;
+    // THE DEADWEIGHT: "enormous" -- bigger footprint, not just bigger HP.
+    const radius = herald === HERALD_DEADWEIGHT ? TUNE.BOSS_RADIUS * 1.3 : TUNE.BOSS_RADIUS;
+    const b = { x, y, vx: 0, vy: 0, angle: 0, hp, maxHp: hp, speed, radius, flashUntil: 0, herald };
+    if (herald === HERALD_LATTICE) b.facetHits = new Array(TUNE.HERALD_LATTICE_FACET_COUNT).fill(0);
+    if (herald === HERALD_METRONOME) b.metronomeTimer = 0;
+    if (herald === HERALD_TRANSFER) b.hasSplit = false;
+    return b;
   }
 
   const enemies = [];
@@ -1142,8 +1349,10 @@
     kekuFragmentTellActive = true;
     kekuFragmentTellTimer = 0;
     const growth = Math.max(0, dw - TUNE.WAVES_PER_GALAXY);
-    const rockMult = currentElement() === 'Rock' ? TUNE.ELEMENT_ROCK_HP_MULT : 1;
-    kekuFragmentHp = Math.floor(TUNE.BOSS_HP * (1 + growth * TUNE.WAVE_HP_GROWTH_PER_WAVE) * TUNE.KEKU_HP_MULT * rockMult);
+    // The Fragment doesn't take on a herald's SHAPE or mechanic (it's its
+    // own established identity, not one of the ten) -- but it's still "an
+    // enemy in that galaxy," so its HP scales with the same flavor.
+    kekuFragmentHp = Math.floor(TUNE.BOSS_HP * (1 + growth * TUNE.WAVE_HP_GROWTH_PER_WAVE) * TUNE.KEKU_HP_MULT * heraldHpMult(currentGalaxyIndex()));
     stopDrone();   // "the music/drone cuts to silence"
   }
 
@@ -1823,21 +2032,30 @@
   // crowd doesn't yank the player at an unplayable speed.
   function gravityPullOnPlayer() {
     let px = 0, py = 0;
-    const pull = (e) => {
+    const pull = (e, radius, strength) => {
       const dx = e.x - player.x, dy = e.y - player.y;
       const dist = Math.hypot(dx, dy);
-      if (dist > 0.001 && dist < TUNE.ELEMENT_GRAVITY_RADIUS) {
-        const strength = TUNE.ELEMENT_GRAVITY_STRENGTH * (1 - dist / TUNE.ELEMENT_GRAVITY_RADIUS);
-        px += (dx / dist) * strength;
-        py += (dy / dist) * strength;
+      if (dist > 0.001 && dist < radius) {
+        const s = strength * (1 - dist / radius);
+        px += (dx / dist) * s;
+        py += (dy / dist) * s;
       }
     };
-    for (const e of enemies) pull(e);
-    if (boss) pull(boss);
+    for (const e of enemies) pull(e, TUNE.ELEMENT_GRAVITY_RADIUS, TUNE.ELEMENT_GRAVITY_STRENGTH);
+    // THE LENSING: "pulls you toward it, constantly... kiting is nearly
+    // impossible" -- a much stronger, longer-range pull than an ordinary
+    // Gravity-galaxy enemy, and its own higher clamp below.
+    let maxPull = TUNE.ELEMENT_GRAVITY_MAX_PULL;
+    if (boss && boss.herald === HERALD_LENSING) {
+      pull(boss, TUNE.HERALD_LENSING_PULL_RADIUS, TUNE.HERALD_LENSING_PULL_STRENGTH);
+      maxPull = TUNE.HERALD_LENSING_MAX_PULL;
+    } else if (boss) {
+      pull(boss, TUNE.ELEMENT_GRAVITY_RADIUS, TUNE.ELEMENT_GRAVITY_STRENGTH);
+    }
     const mag = Math.hypot(px, py);
-    if (mag > TUNE.ELEMENT_GRAVITY_MAX_PULL) {
-      px = (px / mag) * TUNE.ELEMENT_GRAVITY_MAX_PULL;
-      py = (py / mag) * TUNE.ELEMENT_GRAVITY_MAX_PULL;
+    if (mag > maxPull) {
+      px = (px / mag) * maxPull;
+      py = (py / mag) * maxPull;
     }
     return { x: px, y: py };
   }
@@ -2107,6 +2325,8 @@
     for (const enemy of enemies) {
       if (enemy.type === 'lance') {
         updateLanceEnemy(enemy, dt);
+      } else if (enemy.type === 'transfer_half') {
+        updateTransferHalf(enemy, dt);
       } else {
         updateChaseEnemy(enemy, dt, grid);
       }
@@ -2142,7 +2362,9 @@
           enemy.y = player.y;
         }
 
-        player.hp -= TUNE.CONTACT_DPS * dt;
+        // A Transfer half is boss-tier, not swarm-tier.
+        const dps = enemy.type === 'transfer_half' ? TUNE.BOSS_DPS * TUNE.HERALD_TRANSFER_HALF_DPS_MULT : TUNE.CONTACT_DPS;
+        player.hp -= dps * dt;
         player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
         sfxPlayerHit();
         if (el === 'Acid') addAcidStack();
@@ -2169,6 +2391,9 @@
       boss.angle = Math.atan2(dy, dx);
     }
 
+    boss.x += boss.vx * dt;
+    boss.y += boss.vy * dt;
+
     // Block 25 -- the element applies to every enemy in the galaxy,
     // including the boss: same Wind current, same Radiation aura, same
     // Acid/Ice stacks on contact.
@@ -2179,13 +2404,48 @@
       boss.y += w.y * dt;
     }
     if (el === 'Radiation' && state === STATE.RUN) {
+      // THE ABLATION gets its own, larger aura -- "it is not the boss
+      // that kills you, it is the space around it."
+      const auraRadius = boss.herald === HERALD_ABLATION ? TUNE.HERALD_ABLATION_AURA_RADIUS : TUNE.ELEMENT_RADIATION_RADIUS;
+      const auraDps = boss.herald === HERALD_ABLATION ? TUNE.HERALD_ABLATION_AURA_DPS : TUNE.ELEMENT_RADIATION_DPS;
       const rdist = Math.hypot(boss.x - player.x, boss.y - player.y);
-      if (rdist < TUNE.ELEMENT_RADIATION_RADIUS + boss.radius) {
-        player.hp -= TUNE.ELEMENT_RADIATION_DPS * dt;
+      if (rdist < auraRadius + boss.radius) {
+        player.hp -= auraDps * dt;
         player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
         sfxPlayerHit();
         if (player.hp <= 0 && state === STATE.RUN) killPlayer('boss');
       }
+    }
+
+    // Block 26 -- herald-specific mechanics beyond the shared element.
+    if (boss.herald === HERALD_MAW) {
+      // "Leaves a burning trail behind it. The arena slowly fills with
+      // fire." -- reuses the same firePools Fire enemies drop on death,
+      // just dropped continuously while it moves instead of once.
+      boss.trailTimer = (boss.trailTimer || 0) - dt;
+      if (boss.trailTimer <= 0) {
+        boss.trailTimer = TUNE.HERALD_MAW_TRAIL_INTERVAL;
+        firePools.push({ x: boss.x, y: boss.y, until: currentTime + TUNE.ELEMENT_FIRE_POOL_DURATION * 1000 });
+      }
+    } else if (boss.herald === HERALD_METRONOME) {
+      boss.metronomeTimer = (boss.metronomeTimer || 0) + dt;
+    } else if (boss.herald === HERALD_SOLVENT) {
+      // "Standing anywhere near it drops your fire rate" -- an aura, not
+      // a contact requirement, unlike the ambient Acid element.
+      const sdist = Math.hypot(boss.x - player.x, boss.y - player.y);
+      if (sdist < TUNE.HERALD_SOLVENT_AURA_RADIUS + boss.radius && state === STATE.RUN) {
+        addAcidStack();
+      }
+    } else if (boss.herald === HERALD_SCATTERING) {
+      // "Constantly pushes you away." Re-clamped to the margins right
+      // after, same as update()'s own movement -- this runs after that
+      // clamp already happened this frame, so it needs its own.
+      const pdx2 = player.x - boss.x, pdy2 = player.y - boss.y;
+      const plen = Math.hypot(pdx2, pdy2) || 1;
+      player.x += (pdx2 / plen) * TUNE.HERALD_SCATTERING_PUSH_STRENGTH * dt;
+      player.y += (pdy2 / plen) * TUNE.HERALD_SCATTERING_PUSH_STRENGTH * dt;
+      player.x = Math.max(TUNE.MARGIN, Math.min(window.innerWidth - TUNE.MARGIN, player.x));
+      player.y = Math.max(TUNE.MARGIN, Math.min(window.innerHeight - TUNE.MARGIN, player.y));
     }
 
     const touchDist = TUNE.PLAYER_RADIUS + boss.radius;
@@ -2590,6 +2850,125 @@
     }
   }
 
+  // Block 26 -- herald-specific helpers used from the bullet-hit loop.
+
+  // THE METRONOME: vulnerable for HERALD_METRONOME_VULN_WINDOW seconds at
+  // the start of each HERALD_METRONOME_PULSE_PERIOD-second cycle, immune
+  // the rest.
+  function metronomeVulnerable(bossEntity) {
+    return (bossEntity.metronomeTimer % TUNE.HERALD_METRONOME_PULSE_PERIOD) < TUNE.HERALD_METRONOME_VULN_WINDOW;
+  }
+
+  // THE LATTICE: which of its facets a point sits behind, by angle from
+  // its centre.
+  function latticeFacetIndex(bossEntity, hx, hy) {
+    const ang = Math.atan2(hy - bossEntity.y, hx - bossEntity.x);
+    const norm = ((ang % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    const idx = Math.floor(norm / (Math.PI * 2 / TUNE.HERALD_LATTICE_FACET_COUNT));
+    return Math.min(TUNE.HERALD_LATTICE_FACET_COUNT - 1, idx);
+  }
+
+  // THE TRANSFER: replaces the singular boss with two independent
+  // entities in `enemies[]` (there's no infrastructure for two
+  // simultaneous `boss` objects, and this reuses everything that already
+  // targets/draws/damages regular enemies). Each gets half of whatever HP
+  // remained at the moment of the split, per "each half has half the
+  // remaining HP."
+  function performTransferSplit(oldBoss) {
+    const halfHp = Math.max(1, Math.floor(oldBoss.hp * 0.5));
+    const offsets = [Math.PI / 2, -Math.PI / 2];
+    for (const off of offsets) {
+      const a = oldBoss.angle + off;
+      enemies.push({
+        type: 'transfer_half',
+        x: oldBoss.x + Math.cos(a) * oldBoss.radius * 0.8,
+        y: oldBoss.y + Math.sin(a) * oldBoss.radius * 0.8,
+        vx: 0, vy: 0, angle: oldBoss.angle,
+        hp: halfHp, maxHp: halfHp,
+        radius: oldBoss.radius * 0.72,
+        speed: oldBoss.speed * 1.15,
+        flashUntil: 0
+      });
+    }
+    oldBoss.dead = true;
+    boss = null;
+    shakeStrength = Math.max(shakeStrength, TUNE.SHAKE_KILL * 0.6);
+    spawnParticle(oldBoss.x, oldBoss.y, 0, 0, TUNE.DEATH_BURST_MS, hslToRgbTriplet(currentHue(), 0.8, 0.7), 4);
+    sfxHit();
+  }
+
+  // Direct player-homing, same shape as updateBoss's own movement -- a
+  // Transfer half is still boss-tier, not swarm-tier, so it doesn't use
+  // the chase+separation model the trash enemies share.
+  function updateTransferHalf(enemy, dt) {
+    const dx = player.x - enemy.x, dy = player.y - enemy.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 0.001) {
+      enemy.vx = (dx / dist) * enemy.speed;
+      enemy.vy = (dy / dist) * enemy.speed;
+      enemy.angle = Math.atan2(dy, dx);
+    }
+    enemy.x += enemy.vx * dt;
+    enemy.y += enemy.vy * dt;
+  }
+
+  // The "a boss just died" consequences, factored out of the main
+  // bullet-hit death block so a Transfer half's death (which happens
+  // through the regular `enemies` death path, not the `closest === boss`
+  // branch) can trigger the same galaxy-clear/leap or endless-depth-
+  // increment once the LAST half is dead.
+  function handleBossDefeated(entity) {
+    sfxBossDies();
+    if (endlessMode) {
+      // No map, no menu, no break -- straight into the next depth.
+      // Nothing is held here, so none of the story-mode galaxy/Keku
+      // bookkeeping below applies; the colour shift IS the transition,
+      // via galaxyPalette() cycling on the incremented depth next frame.
+      if (entity.isFragment) {
+        // Huge mote drop -- individual motes, same collection mechanic as
+        // any other kill, just 500 of them.
+        for (let i = 0; i < TUNE.KEKU_MOTES; i++) {
+          const jx = (Math.random() * 2 - 1) * 12;
+          const jy = (Math.random() * 2 - 1) * 12;
+          motes.push({ x: entity.x + jx, y: entity.y + jy, speed: 0 });
+        }
+        fragmentsKilled++;
+      }
+      endlessDepth++;
+      if (endlessDepth > bestDepth) bestDepth = endlessDepth;
+      // Endless never passes through restart() between depths (no map, no
+      // break) -- clear the previous depth's element hazards by hand, or
+      // a Fire pool could sit there rendering in the NEW depth's colour,
+      // implying a hazard that isn't real there.
+      firePools.length = 0;
+      plasmaTrails.length = 0;
+      lightningBolts.length = 0;
+      shards.length = 0;
+      saveBank();
+      startWave(1);
+      startDrone();   // resume -- the tell silenced it; harmless no-op if it never stopped
+    } else {
+      sfxGalaxyCleared();
+      stopDrone();
+      galaxies[currentGalaxy] = 1;
+      const heldCount = galaxies.filter((g) => g === 1).length;
+      if (heldCount > deepestHeld) deepestHeld = heldCount;
+      if (kekuLineFirstTime(0)) {
+        victoryKekuLine = { text: KEKU_LINES[0], attributed: false };
+      } else if (heldCount === 10 && kekuLineFirstTime(5)) {
+        victoryKekuLine = { text: KEKU_LINES[5], attributed: true };
+      } else {
+        victoryKekuLine = null;
+      }
+      bankedMotes += Math.round(runMotes);
+      saveBank();
+      leapFrom = currentGalaxy;
+      leapTo = Math.min(currentGalaxy + 1, GALAXY_DATA.length - 1);
+      leapStartTime = currentTime;
+      state = STATE.LEAP;
+    }
+  }
+
   function updateBullets(dt) {
     fireTimer += dt;
     const effectiveFireRate = TUNE.FIRE_RATE * Math.pow(TUNE.FIRE_RATE_MULT, upgradeLevels.fireRate) * Math.pow(TUNE.SHOP_CADENCE_MULT, shop.cadence) * acidFireRateMult();
@@ -2648,7 +3027,18 @@
       }
     }
 
+    // THE SCATTERING: "your bullets drift... nothing goes where you aim
+    // it." Reuses the same rotating current as Wind, independently scaled,
+    // applied to every live bullet for the whole fight, not just near it.
+    const scatteringActive = boss && boss.herald === HERALD_SCATTERING;
+    const scatterDrift = scatteringActive ? windVector() : null;
+
     for (const bullet of bullets) {
+      if (scatterDrift) {
+        bullet.vx += (scatterDrift.x / TUNE.ELEMENT_WIND_STRENGTH) * TUNE.HERALD_SCATTERING_BULLET_DRIFT * dt;
+        bullet.vy += (scatterDrift.y / TUNE.ELEMENT_WIND_STRENGTH) * TUNE.HERALD_SCATTERING_BULLET_DRIFT * dt;
+      }
+
       const px = bullet.x;
       const py = bullet.y;
       const nx = bullet.x + bullet.vx * dt;
@@ -2681,103 +3071,97 @@
       bullet.y = ny;
 
       if (closest) {
-        closest.hp -= TUNE.BULLET_DAMAGE * Math.pow(TUNE.DAMAGE_MULT, upgradeLevels.damage) * Math.pow(TUNE.SHOP_CALIBRE_MULT, shop.calibre);
-        closest.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
+        const isBoss = closest === boss;
+        const heraldIdx = isBoss ? boss.herald : -1;
+        const metronomeBlocked = isBoss && heraldIdx === HERALD_METRONOME && !metronomeVulnerable(boss);
+        const latticeFacet = isBoss && heraldIdx === HERALD_LATTICE ? latticeFacetIndex(boss, nx, ny) : -1;
+        const latticeBlocked = latticeFacet >= 0 && boss.facetHits[latticeFacet] < TUNE.HERALD_LATTICE_FACET_HITS;
 
-        // Rock: "immune to knockback... they do not stagger."
-        if (currentElement() !== 'Rock') {
-          const blen = Math.hypot(bullet.vx, bullet.vy) || 1;
-          closest.x += (bullet.vx / blen) * TUNE.KNOCKBACK;
-          closest.y += (bullet.vy / blen) * TUNE.KNOCKBACK;
-        }
+        if (metronomeBlocked) {
+          // THE METRONOME: the shot visibly connects -- flash, spark,
+          // consumes pierce -- it just does no damage outside its window.
+          closest.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
+          spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, '210, 210, 210', 3);
+          sfxHit();
+          bullet.hit.add(closest);
+          if (bullet.pierceRemaining > 0) bullet.pierceRemaining--; else bullet.dead = true;
 
-        // Sparks off the enemy's own light, not white -- white is sacred.
-        spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, hslToRgbTriplet(currentHue(), 0.7, 0.75), 3);
-        sfxHit();
+        } else if (latticeBlocked) {
+          // THE LATTICE: an unbroken facet reflects the shot straight back
+          // -- keep hitting the SAME facet (by impact angle) to break it.
+          boss.facetHits[latticeFacet]++;
+          const rdx = player.x - nx, rdy = player.y - ny;
+          const rlen = Math.hypot(rdx, rdy) || 1;
+          shards.push({ x: nx, y: ny, vx: (rdx / rlen) * TUNE.ELEMENT_SHARD_SPEED, vy: (rdy / rlen) * TUNE.ELEMENT_SHARD_SPEED, born: currentTime });
+          closest.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
+          spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, hslToRgbTriplet(currentHue(), 0.7, 0.75), 3);
+          sfxHit();
+          bullet.hit.add(closest);
+          if (bullet.pierceRemaining > 0) bullet.pierceRemaining--; else bullet.dead = true;
 
-        bullet.hit.add(closest);
-        if (bullet.pierceRemaining > 0) {
-          bullet.pierceRemaining--;
         } else {
-          bullet.dead = true;
-        }
+          closest.hp -= TUNE.BULLET_DAMAGE * Math.pow(TUNE.DAMAGE_MULT, upgradeLevels.damage) * Math.pow(TUNE.SHOP_CALIBRE_MULT, shop.calibre);
+          closest.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
 
-        if (closest.hp <= 0) {
-          closest.dead = true;
-          shakeStrength = TUNE.SHAKE_KILL;
-
-          // The enemy's own light scattering, not a fixed universal red --
-          // colour is the galaxy, all the way down to its debris.
-          const burstColor = hslToRgbTriplet(currentHue(), 0.8, 0.6);
-          const count = 6 + Math.floor(Math.random() * 3);
-          for (let i = 0; i < count; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const burstSpeed = 60 + Math.random() * 80;
-            spawnParticle(closest.x, closest.y, Math.cos(angle) * burstSpeed, Math.sin(angle) * burstSpeed, TUNE.DEATH_BURST_MS, burstColor, 2.5);
+          // Rock: "immune to knockback... they do not stagger."
+          if (currentElement() !== 'Rock') {
+            const blen = Math.hypot(bullet.vx, bullet.vy) || 1;
+            closest.x += (bullet.vx / blen) * TUNE.KNOCKBACK;
+            closest.y += (bullet.vy / blen) * TUNE.KNOCKBACK;
           }
 
-          if (navigator.vibrate) navigator.vibrate(10);
+          // Sparks off the enemy's own light, not white -- white is sacred.
+          spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, hslToRgbTriplet(currentHue(), 0.7, 0.75), 3);
+          sfxHit();
 
-          // Block 25 -- "applies to EVERY enemy in that galaxy, including
-          // the boss": this runs before the boss-transition branch below,
-          // so a boss kill still leaves its fire pool / chains its
-          // lightning / shatters its shards at its death position first.
-          applyElementalDeathEffect(closest);
-
-          if (closest === boss) {
-            sfxBossDies();
-            if (endlessMode) {
-              // No map, no menu, no break -- straight into the next depth.
-              // Nothing is held here, so none of the story-mode galaxy/Keku
-              // bookkeeping below applies; the colour shift IS the transition,
-              // via galaxyPalette() cycling on the incremented depth next frame.
-              if (closest.isFragment) {
-                // Huge mote drop -- individual motes, same collection
-                // mechanic as any other kill, just 500 of them.
-                for (let i = 0; i < TUNE.KEKU_MOTES; i++) {
-                  const jx = (Math.random() * 2 - 1) * 12;
-                  const jy = (Math.random() * 2 - 1) * 12;
-                  motes.push({ x: closest.x + jx, y: closest.y + jy, speed: 0 });
-                }
-                fragmentsKilled++;
-              }
-              endlessDepth++;
-              if (endlessDepth > bestDepth) bestDepth = endlessDepth;
-              // Endless never passes through restart() between depths (no
-              // map, no break) -- clear the previous depth's element hazards
-              // by hand, or a Fire pool could sit there rendering in the
-              // NEW depth's colour, implying a hazard that isn't real there.
-              firePools.length = 0;
-              plasmaTrails.length = 0;
-              lightningBolts.length = 0;
-              shards.length = 0;
-              saveBank();
-              startWave(1);
-              startDrone();   // resume -- the tell silenced it; harmless no-op if it never stopped
-            } else {
-              sfxGalaxyCleared();
-              stopDrone();
-              galaxies[currentGalaxy] = 1;
-              const heldCount = galaxies.filter((g) => g === 1).length;
-              if (heldCount > deepestHeld) deepestHeld = heldCount;
-              if (kekuLineFirstTime(0)) {
-                victoryKekuLine = { text: KEKU_LINES[0], attributed: false };
-              } else if (heldCount === 10 && kekuLineFirstTime(5)) {
-                victoryKekuLine = { text: KEKU_LINES[5], attributed: true };
-              } else {
-                victoryKekuLine = null;
-              }
-              bankedMotes += Math.round(runMotes);
-              saveBank();
-              leapFrom = currentGalaxy;
-              leapTo = Math.min(currentGalaxy + 1, GALAXY_DATA.length - 1);
-              leapStartTime = currentTime;
-              state = STATE.LEAP;
-            }
+          bullet.hit.add(closest);
+          if (bullet.pierceRemaining > 0) {
+            bullet.pierceRemaining--;
           } else {
-            sfxKill();
-            motes.push({ x: closest.x, y: closest.y, speed: 0 });
-            waveKilled++;
+            bullet.dead = true;
+          }
+
+          if (isBoss && heraldIdx === HERALD_TRANSFER && !boss.hasSplit && boss.hp > 0 && boss.hp <= boss.maxHp * TUNE.HERALD_TRANSFER_SPLIT_FRAC) {
+            // THE TRANSFER: splits before it would otherwise die from this
+            // same hit if it's already deep enough into overkill --
+            // splitting always takes precedence over dying outright.
+            boss.hasSplit = true;
+            performTransferSplit(boss);
+          } else if (closest.hp <= 0) {
+            closest.dead = true;
+            shakeStrength = TUNE.SHAKE_KILL;
+
+            // The enemy's own light scattering, not a fixed universal red --
+            // colour is the galaxy, all the way down to its debris.
+            const burstColor = hslToRgbTriplet(currentHue(), 0.8, 0.6);
+            const count = 6 + Math.floor(Math.random() * 3);
+            for (let i = 0; i < count; i++) {
+              const angle = Math.random() * Math.PI * 2;
+              const burstSpeed = 60 + Math.random() * 80;
+              spawnParticle(closest.x, closest.y, Math.cos(angle) * burstSpeed, Math.sin(angle) * burstSpeed, TUNE.DEATH_BURST_MS, burstColor, 2.5);
+            }
+
+            if (navigator.vibrate) navigator.vibrate(10);
+
+            // Block 25 -- "applies to EVERY enemy in that galaxy, including
+            // the boss": this runs before the boss-transition branch below,
+            // so a boss kill still leaves its fire pool / chains its
+            // lightning / shatters its shards at its death position first.
+            applyElementalDeathEffect(closest);
+
+            if (isBoss) {
+              handleBossDefeated(closest);
+            } else if (closest.type === 'transfer_half') {
+              // "Kill both": only the LAST half dying counts as the boss
+              // being defeated. The first half's death gets no reward of
+              // its own -- this is one boss fight, not two trash kills.
+              const remaining = enemies.some((e) => e !== closest && e.type === 'transfer_half' && !e.dead);
+              if (!remaining) handleBossDefeated(closest);
+            } else {
+              sfxKill();
+              motes.push({ x: closest.x, y: closest.y, speed: 0 });
+              waveKilled++;
+            }
           }
         }
       } else if (nx < 0 || nx > canvas.width || ny < 0 || ny > canvas.height) {
@@ -3018,6 +3402,10 @@
         ctx.lineTo(ANCHOR_SIZE * -0.20, ANCHOR_SIZE * -0.10);
         ctx.stroke();
         ctx.globalAlpha = 1;
+      } else if (enemy.type === 'transfer_half') {
+        // Still boss-tier after the split -- THE TRANSFER's own shape and
+        // brightness, not the swarm's Hollow silhouette.
+        strokeShipPath(heraldTransferPoints(enemy.radius), flashing ? '#fff' : pal.bossAccent, 2.5);
       } else {
         const color = flashing ? '#fff' : pal.tier1;
         strokeShipPath(SHIP_HOLLOW, color, SHIP_STROKE_PX.hollow);
@@ -3044,15 +3432,57 @@
       // things that ever gets to wear it, same as the Warden. A hit is
       // still a flash to white either way, same as every other entity.
       const color = currentTime < boss.flashUntil ? '#fff' : (boss.isFragment ? '#fff' : pal.bossAccent);
-      strokeShipPath(bossShipPoints(boss.radius), color, 2.5);
+      strokeShipPath(heraldShipPoints(boss.herald, boss.radius), color, 2.5);
 
-      // The maw: a ring at the centre, open, not filled -- this is a mouth,
-      // not just a bigger hull.
-      ctx.beginPath();
-      ctx.arc(0, 0, boss.radius * 0.4, 0, Math.PI * 2);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.stroke();
+      if (boss.herald === HERALD_MAW || boss.herald === undefined) {
+        // The maw: a ring at the centre, open, not filled -- this is a
+        // mouth, not just a bigger hull. Only THE MAW (and the Fragment,
+        // which shares its shape) keeps this -- the other nine heralds
+        // read through their own distinct silhouette instead.
+        ctx.beginPath();
+        ctx.arc(0, 0, boss.radius * 0.4, 0, Math.PI * 2);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else if (boss.herald === HERALD_LENSING) {
+        // An off-centre warp-point ring, not concentric -- "a ring of
+        // light bent around something," not a mouth.
+        ctx.beginPath();
+        ctx.arc(boss.radius * 0.25, 0, boss.radius * 0.28, 0, Math.PI * 2);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else if (boss.herald === HERALD_METRONOME) {
+        // The tell for its vulnerable window: a bright pulsing ring that
+        // only appears while it can actually be hurt.
+        if (metronomeVulnerable(boss)) {
+          const t = boss.metronomeTimer % TUNE.HERALD_METRONOME_PULSE_PERIOD;
+          const flash = 0.5 + 0.5 * Math.sin(t * 14);
+          ctx.beginPath();
+          ctx.arc(0, 0, boss.radius * (1.15 + flash * 0.15), 0, Math.PI * 2);
+          ctx.strokeStyle = '#fff';
+          ctx.globalAlpha = 0.5 + flash * 0.4;
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      } else if (boss.herald === HERALD_LATTICE) {
+        // One short tick per facet, by angle -- dim while unbroken, bright
+        // white once that facet actually lets damage through.
+        const sides = TUNE.HERALD_LATTICE_FACET_COUNT;
+        for (let i = 0; i < sides; i++) {
+          const ang = (Math.PI * 2 / sides) * i + (Math.PI / sides);
+          const broken = boss.facetHits[i] >= TUNE.HERALD_LATTICE_FACET_HITS;
+          ctx.strokeStyle = broken ? '#fff' : color;
+          ctx.globalAlpha = broken ? 0.9 : 0.35;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(ang) * boss.radius * 0.75, Math.sin(ang) * boss.radius * 0.75);
+          ctx.lineTo(Math.cos(ang) * boss.radius * 1.15, Math.sin(ang) * boss.radius * 1.15);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
 
       ctx.restore();
     }
@@ -3217,10 +3647,16 @@
         ctx.fillStyle = pal.bossAccent;
         ctx.fillRect(0, bossBarY, canvas.width * (boss.hp / boss.maxHp), bossBarHeight);
 
+        // Block 26 -- each herald has its own fixed name ("shown on
+        // appearance" via this same bar, which starts showing the instant
+        // boss becomes truthy). The Fragment has no herald -- it keeps
+        // the player-editable generic NAMES.boss, its own established
+        // identity, not one of the ten.
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
         ctx.font = '12px sans-serif';
-        ctx.fillText(NAMES.boss.toUpperCase(), canvas.width / 2, bossBarY + bossBarHeight + 14);
+        const bossLabel = boss.herald !== undefined ? HERALDS[boss.herald].name : NAMES.boss.toUpperCase();
+        ctx.fillText(bossLabel, canvas.width / 2, bossBarY + bossBarHeight + 14);
         ctx.textAlign = 'left';
       }
     }
