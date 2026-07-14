@@ -54,40 +54,46 @@
   // only -- built objects (Warden/Lance/Anchor) or a hunched organic shape
   // (Hollow), never a symmetric star. Each is deliberately a different
   // silhouette family so no two are confusable at a glance in a crowd:
-  //   WARDEN -- long swept delta, pointed nose, longer than wide.
-  //   HOLLOW -- small hunched mouth, wider than long, jagged front only.
-  //   LANCE  -- needle, very long and narrow, flared fins at the rear.
-  //   ANCHOR -- broad slab, wider than long, blunt heavy prow.
+  //   WARDEN -- long swept delta, one pointed nose, longer than wide.
+  //   HOLLOW -- small hunched mouth with a concave bite, wider than long.
+  //   LANCE  -- needle, arrowhead front + thin trailing spike, very long.
+  //   ANCHOR -- broad angular shield, wider than long, blunt flat prow.
 
-  // THE WARDEN. Pointed nose far out front, swept wings, twin rear nacelle
-  // bumps either side of a notched tail (points 9-11 cut inward between
-  // them). Farthest vertex (the nose, 17 units out) is ~1.6x Hollow's
-  // farthest vertex (~10.6 units) -- noticeably bigger, not screen-dominating.
+  // THE WARDEN. One sharp nose far out front, swept delta wings, two
+  // thruster nacelle bumps at the REAR ONLY (points 5-6 and 11-12) either
+  // side of a notch cut between them (points 7-9). Bilateral (top/bottom)
+  // symmetry only -- never radial, so it can't read as a diamond or star.
+  // Farthest vertex (the nose, 22 units out) is ~1.8x the Hollow's farthest
+  // vertex (~12.5 units).
   const SHIP_WARDEN = [
-    [17, 0], [7, 3], [2, 5], [-3, 9], [-8, 6], [-9, 7], [-13, 5], [-13, 2],
-    [-9, 0], [-13, -2], [-13, -5], [-9, -7], [-8, -6], [-3, -9], [2, -5], [7, -3]
+    [22, 0], [9, 4], [3, 7], [-4, 12], [-10, 8], [-12, 9], [-17, 7], [-17, 3],
+    [-12, 0], [-17, -3], [-17, -7], [-12, -9], [-10, -8], [-4, -12], [3, -7], [9, -4]
   ];
 
   // THE HOLLOW. A hunched little mouth, not a ship -- wider (side to side,
-  // Y) than it is long (nose to tail, X). Jagged broken teeth only at the
-  // front; the rear is a single smooth hunch, not mirrored spikes, so it
-  // never reads as a symmetric star.
+  // Y) than it is long (nose to tail, X). The front (points 1-3) is a
+  // CONCAVE bite: the middle point sits closer to the centre than the two
+  // "jaw" points flanking it, cutting a mouth-shaped notch open toward
+  // whatever it's facing. The rest of the body is an irregular, jagged
+  // hunch, asymmetric enough front-to-back that it never reads as a star.
   const SHIP_HOLLOW = [
-    [7, 0], [2, 3], [5, 6], [-2, 10], [-7, 8], [-6, 0],
-    [-7, -8], [-2, -10], [5, -6], [2, -3]
+    [6, 3], [1, 0], [6, -3], [2, -9], [-6, -11], [-9, -4], [-8, 0], [-9, 4], [-6, 11], [2, 9]
   ];
 
-  // THE LANCE. A needle -- long and thin through the body, with fins that
-  // flare out sharply at the rear, well past the body's own width.
+  // THE LANCE. An arrowhead at the very front (points 1-2, with two small
+  // fins swept back right behind the tip) narrowing immediately into a
+  // long, thin spike that trails back far behind the head -- most of the
+  // length is that bare spike, not the head.
   const SHIP_LANCE = [
-    [22, 0], [3, 1.5], [-6, 2], [-10, 6], [-8, 2], [-12, 0], [-8, -2], [-10, -6], [-6, -2], [3, -1.5]
+    [18, 0], [6, 5], [3, 1.2], [-20, 1], [-22, 0], [-20, -1], [3, -1.2], [6, -5]
   ];
 
-  // THE ANCHOR. A broad slab -- wider (Y) than it is long (X), with a
-  // stubby, blunt prow rather than a taper. Thick stroke (set at the call
-  // site) does the rest of the "heavy" reading.
+  // THE ANCHOR. A broad angular shield -- wider (Y) than it is long (X),
+  // with a flat-ish prow (the short edge between points 1 and 8, not a
+  // taper to a single point). Internal fracture lines are drawn separately
+  // at the call site, not part of this outline.
   const SHIP_ANCHOR = [
-    [8, 6], [14, 0], [8, -6], [2, -14], [-10, -18], [-14, 0], [-10, 18], [2, 14]
+    [8, 6], [2, 14], [-10, 17], [-16, 6], [-16, -6], [-10, -17], [2, -14], [8, -6]
   ];
 
   const DEBUG = true;
@@ -141,7 +147,7 @@
     SHAKE_DECAY_MS: 80,
     DEATH_BURST_MS: 400,
     IMPACT_SPARK_MS: 79.2,
-    TRAIL_LENGTH: 10,
+    TRAIL_LENGTH: 22,
     THUMB_OFFSET: 15,
     PICKUP_RADIUS: 90,
     MOTE_SPEED: 340,   // how fast a mote flies to the player
@@ -2541,12 +2547,15 @@
     // filled dots -- a dot sitting at the newest (most opaque, widest)
     // sample reads as a second object under the hull. A thin line has
     // nothing to read as separately from the ship it's converging into.
+    // Long and bright on purpose -- in a crowd of enemies this streak is
+    // how the player relocates themselves at a glance, so it needs to read
+    // from much farther away than a subtle polish detail would.
     for (let i = 0; i < trail.length - 1; i++) {
       const a = trail[i];
       const b = trail[i + 1];
       const age = (i + 1) / trail.length;
-      ctx.strokeStyle = `rgba(255, 255, 255, ${age * 0.35})`;
-      ctx.lineWidth = 4 * age;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${age * 0.65})`;
+      ctx.lineWidth = 6 * age;
       ctx.beginPath();
       ctx.moveTo(a.x, a.y - TUNE.THUMB_OFFSET);
       ctx.lineTo(b.x, b.y - TUNE.THUMB_OFFSET);
@@ -2566,9 +2575,34 @@
       if (enemy.type === 'lance') {
         strokeShipPath(SHIP_LANCE, flashing ? '#fff' : pal.tier2, 1.6);
       } else if (enemy.type === 'anchor') {
-        strokeShipPath(SHIP_ANCHOR, flashing ? '#fff' : pal.tier3, 2.5);
+        const color = flashing ? '#fff' : pal.tier3;
+        strokeShipPath(SHIP_ANCHOR, color, 2.5);
+
+        // Fracture lines -- surface detail, not part of the outline. Same
+        // colour as the hull (tier is brightness/size/stroke, never hue).
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.5;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(4, 10);
+        ctx.lineTo(-6, 4);
+        ctx.lineTo(2, -8);
+        ctx.moveTo(-8, 12);
+        ctx.lineTo(-4, -2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
       } else {
-        strokeShipPath(SHIP_HOLLOW, flashing ? '#fff' : pal.tier1, 1.2);
+        const color = flashing ? '#fff' : pal.tier1;
+        strokeShipPath(SHIP_HOLLOW, color, 1.2);
+
+        // A small hot core -- same hue as the hull, additively stacked so
+        // it reads as brighter without ever switching colour.
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath();
+        ctx.arc(0, 0, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
       }
 
       ctx.restore();
@@ -2653,19 +2687,19 @@
     // through the screen-edge vignette instead (see below), not the ship.
     strokeShipPath(SHIP_WARDEN, '#fff', 1.5);
 
-    // Panel lines -- surface detail, not part of the outline. A spine from
-    // nose to the tail notch, a crossbar marking the wing roots, and a
-    // second crossbar marking the nacelle bulkheads.
+    // Panel lines -- surface detail, not part of the outline. Three seams
+    // running LENGTHWISE (nose to tail), not crossbars, so they read as
+    // hull plating rather than structural ribs.
     ctx.strokeStyle = '#fff';
     ctx.globalAlpha = 0.5;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(17, 0);
-    ctx.lineTo(-9, 0);
-    ctx.moveTo(2, 5);
-    ctx.lineTo(2, -5);
-    ctx.moveTo(-9, 7);
-    ctx.lineTo(-9, -7);
+    ctx.moveTo(20, 0);
+    ctx.lineTo(-12, 0);
+    ctx.moveTo(9, 4);
+    ctx.lineTo(-10, 8);
+    ctx.moveTo(9, -4);
+    ctx.lineTo(-10, -8);
     ctx.stroke();
     ctx.globalAlpha = 1;
 
