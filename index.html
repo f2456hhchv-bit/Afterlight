@@ -454,17 +454,71 @@
     { star: 'Nebula', element: 'Wind', hue: 320 }
   ];
 
+  // Neon wireframe art direction: the void is always pure #000, never a
+  // galaxy-tinted gradient -- so this no longer returns a `background`
+  // field at all. Light must punch out of absolute black; nothing sits
+  // behind the entities.
   function galaxyPalette(index) {
     const data = GALAXY_DATA[index];
-    const depth = index / (GALAXY_DATA.length - 1);   // 0 at galaxy 1, 1 at galaxy 10
     return {
       star: data.star,
       element: data.element,
       hue: data.hue,
-      accent: `hsl(${data.hue}, 85%, 55%)`,
-      bossAccent: `hsl(${data.hue}, 100%, 72%)`,       // hotter, brighter
-      background: `hsl(${data.hue}, 60%, ${(depth * 10).toFixed(2)}%)`
+      accent: `hsl(${data.hue}, 90%, 62%)`,
+      bossAccent: `hsl(${data.hue}, 100%, 72%)`   // hotter, brighter
     };
+  }
+
+  // Damage feedback -- one colour, used ONLY for "you just took/dealt a hit,"
+  // never for anything's normal state. White is reserved for the Warden (and,
+  // separately, the Fragment -- the one deliberate collision with that rule).
+  const DAMAGE_COLOR = '#ff2d55';
+
+  // Hand-designed ship outlines (Block "neon wireframe"). Local space, nose
+  // on the +X axis, drawn with ctx.translate/rotate already applied. Straight
+  // edges only -- built objects, not organic shapes. Each stroked as a closed
+  // polygon via strokeShipPath below; boss/Fragment share one shape scaled by
+  // boss.radius instead of a fixed point list, since the same silhouette has
+  // to read at both a normal boss's size and the much larger Fragment's.
+  const SHIP_WARDEN = [
+    [20, 0], [9, 5], [4, 4], [2, 9], [-6, 11], [-4, 5], [-9, 4], [-12, 1],
+    [-9, 0], [-12, -1], [-9, -4], [-4, -5], [-6, -11], [2, -9], [4, -4], [9, -5]
+  ];
+  const SHIP_HOLLOW = [
+    [13, 0], [4, 3], [6, 7], [2, 5], [-4, 9], [-10, 4],
+    [-10, -4], [-4, -9], [2, -5], [6, -7], [4, -3]
+  ];
+  const SHIP_LANCE = [
+    [15, 0], [2, 1.5], [2, 6], [-6, 3], [-8, 1], [-8, -1], [-6, -3], [2, -6], [2, -1.5]
+  ];
+  const SHIP_ANCHOR = [
+    [18, 14], [24, 0], [18, -14], [-10, -20], [-22, -14], [-22, 14], [-10, 20]
+  ];
+
+  function bossShipPoints(r) {
+    return [
+      [r * 1.3, 0], [r * 0.5, r * 0.6], [r * 0.7, r * 0.95], [r * 0.1, r * 0.75],
+      [r * -0.4, r], [r * -1, r * 0.85], [r * -1, r * -0.85], [r * -0.4, r * -1],
+      [r * 0.1, r * -0.75], [r * 0.7, r * -0.95], [r * 0.5, r * -0.6]
+    ];
+  }
+
+  // Wireframe body: a faint fill (so the shape reads as a solid body, not
+  // just crossing lines, in a crowd) plus a bright stroke on top. Assumes
+  // ctx.translate/rotate for this entity are already applied and additive
+  // blending is already active (set once per frame, not per entity).
+  function strokeShipPath(points, color, lineWidth) {
+    ctx.beginPath();
+    ctx.moveTo(points[0][0], points[0][1]);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.12;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
   }
 
   // --- Map corridor: ported 1:1 from the reference implementation. Perspective,
@@ -804,7 +858,8 @@
     vy: 0,
     angle: -Math.PI / 2,
     hp: TUNE.PLAYER_MAX_HP,
-    maxHp: TUNE.PLAYER_MAX_HP
+    maxHp: TUNE.PLAYER_MAX_HP,
+    flashUntil: 0
   };
   player.x = canvas.width / 2;
   player.y = canvas.height / 2;
@@ -1177,6 +1232,7 @@
     const baseMaxHp = TUNE.PLAYER_MAX_HP + shop.hull * TUNE.SHOP_HULL_BONUS;
     player.maxHp = baseMaxHp;
     player.hp = baseMaxHp;
+    player.flashUntil = 0;
     enemies.length = 0;
     trail.length = 0;
     bullets.length = 0;
@@ -1777,6 +1833,7 @@
         }
 
         player.hp -= TUNE.CONTACT_DPS * dt;
+        player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
         sfxPlayerHit();
         if (player.hp <= 0) {
           killPlayer('enemy');
@@ -1814,6 +1871,7 @@
       }
 
       player.hp -= (boss.isFragment ? TUNE.KEKU_DPS : TUNE.BOSS_DPS) * dt;
+      player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
       sfxPlayerHit();
       if (player.hp <= 0) {
         killPlayer('boss');
@@ -2346,13 +2404,19 @@
     // Endless recombines the ten authored star types rather than ever
     // introducing new ones -- the palette index just wraps as depth grows.
     const pal = galaxyPalette(endlessMode ? (endlessDepth - 1) % GALAXY_DATA.length : currentGalaxy);
-    ctx.fillStyle = pal.background;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // No fill here -- the void is always pure #000. draw() already cleared
+    // the canvas to black before dispatching here; nothing goes behind the
+    // entities, ever.
 
     const shakeX = (Math.random() * 2 - 1) * shakeStrength;
     const shakeY = (Math.random() * 2 - 1) * shakeStrength;
     ctx.save();
     ctx.translate(shakeX, shakeY);
+    // Neon wireframe: everything from here to the matching ctx.restore() is
+    // additive -- light adds to light, and adds nothing to the black void.
+    // save()/restore() captures globalCompositeOperation, so this doesn't
+    // need to be reset by hand afterward.
+    ctx.globalCompositeOperation = 'lighter';
 
     for (let i = 0; i < trail.length; i++) {
       const p = trail[i];
@@ -2368,28 +2432,14 @@
       ctx.translate(enemy.x, enemy.y);
       ctx.rotate(enemy.angle);
 
-      ctx.fillStyle = currentTime < enemy.flashUntil ? '#fff' : pal.accent;
-      ctx.beginPath();
+      const color = currentTime < enemy.flashUntil ? DAMAGE_COLOR : pal.accent;
       if (enemy.type === 'lance') {
-        // narrow dart/needle — thin and elongated, reads as fast even standing still
-        ctx.moveTo(TUNE.LANCE_RADIUS * 2.5, 0);
-        ctx.lineTo(-TUNE.LANCE_RADIUS * 1.3, TUNE.LANCE_RADIUS * 0.4);
-        ctx.lineTo(-TUNE.LANCE_RADIUS * 1.3, -TUNE.LANCE_RADIUS * 0.4);
+        strokeShipPath(SHIP_LANCE, color, 1.5);
       } else if (enemy.type === 'anchor') {
-        // heavy hexagon — no sharp nose, reads as a wall
-        for (let i = 0; i < 6; i++) {
-          const a = (Math.PI / 3) * i;
-          const hx = Math.cos(a) * TUNE.ANCHOR_RADIUS;
-          const hy = Math.sin(a) * TUNE.ANCHOR_RADIUS;
-          if (i === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
-        }
+        strokeShipPath(SHIP_ANCHOR, color, 2);
       } else {
-        ctx.moveTo(13, 0);
-        ctx.lineTo(-10, 8);
-        ctx.lineTo(-10, -8);
+        strokeShipPath(SHIP_HOLLOW, color, 1.5);
       }
-      ctx.closePath();
-      ctx.fill();
 
       ctx.restore();
     }
@@ -2401,22 +2451,18 @@
 
       // The Fragment is always pure white -- the only white enemy in the
       // game, not just white-on-hit-flash like a normal boss.
-      ctx.fillStyle = boss.isFragment ? '#fff' : (currentTime < boss.flashUntil ? '#fff' : pal.bossAccent);
-      ctx.beginPath();
-      ctx.moveTo(boss.radius * 1.3, 0);
-      ctx.lineTo(-boss.radius, boss.radius * 0.85);
-      ctx.lineTo(-boss.radius, -boss.radius * 0.85);
-      ctx.closePath();
-      ctx.fill();
+      const color = boss.isFragment ? '#fff' : (currentTime < boss.flashUntil ? DAMAGE_COLOR : pal.bossAccent);
+      strokeShipPath(bossShipPoints(boss.radius), color, 2.5);
 
       ctx.restore();
     }
 
-    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
     for (const bullet of bullets) {
       ctx.beginPath();
       ctx.arc(bullet.x, bullet.y, TUNE.BULLET_RADIUS, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.stroke();
     }
 
     for (const p of particles) {
@@ -2443,13 +2489,23 @@
     ctx.translate(player.x, player.y - TUNE.THUMB_OFFSET);
     ctx.rotate(player.angle);
 
-    ctx.fillStyle = '#fff';
+    const wardenColor = currentTime < player.flashUntil ? DAMAGE_COLOR : '#fff';
+    strokeShipPath(SHIP_WARDEN, wardenColor, 1.5);
+
+    // Panel lines -- surface detail, not part of the outline. A spine from
+    // nose to the tail notch, and two short struts marking the nacelle roots.
+    ctx.strokeStyle = wardenColor;
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(16, 0);
-    ctx.lineTo(-12, 10);
-    ctx.lineTo(-12, -10);
-    ctx.closePath();
-    ctx.fill();
+    ctx.moveTo(20, 0);
+    ctx.lineTo(-9, 0);
+    ctx.moveTo(2, 9);
+    ctx.lineTo(2, -9);
+    ctx.moveTo(-4, 5);
+    ctx.lineTo(-4, -5);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
 
     ctx.restore();
 
@@ -2488,7 +2544,7 @@
       ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
       ctx.fillRect(barX, barY, barWidth, barHeight);
 
-      ctx.fillStyle = '#f00';
+      ctx.fillStyle = DAMAGE_COLOR;
       ctx.fillRect(barX, barY, barWidth * (player.hp / player.maxHp), barHeight);
 
       ctx.fillStyle = '#fff';
