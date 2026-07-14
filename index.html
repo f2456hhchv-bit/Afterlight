@@ -576,14 +576,89 @@
     return ds.map((_, i) => obj[i] === true);
   }
 
+  // Galaxy entry cards -- shown once, on first entry to each of the ten
+  // story galaxies. Title is the galaxy's own name; never the star type or
+  // element (GALAXY_DATA), which these are written to evoke without naming.
+  // Line order per galaxy: place, then people, always ending on cost.
+  const GALAXY_CARDS = [
+    { title: 'EDGE', lines: [
+      "A star too large for its orbit, folding its own light back in. Nothing here casts a shadow anymore.",
+      "They learned to move before the heat did. Most only learned it once."
+    ] },
+    { title: 'CINDER REACH', lines: [
+      "Two suns chase each other and neither wins. There has been no true dark here, not once, for anyone.",
+      "They forgot how the rest of us sleep. They just stop, eventually, wherever they're standing."
+    ] },
+    { title: 'HOLLOW DRIFT', lines: [
+      "Something out there breathes light on a schedule and has never once missed a beat.",
+      "They stopped keeping their own time. Why would you, when something older keeps it for you."
+    ] },
+    { title: 'ASHFALL VOID', lines: [
+      "The star never lit properly. What falls from it isn't rain, and it doesn't stop.",
+      "They grew a second skin to keep the first. Nobody touches bare-handed anymore."
+    ] },
+    { title: 'PALE MARCH', lines: [
+      "The light here is thin and old and warms nothing. It only shows you what's there.",
+      "They learned to stand very still. Everything, eventually, cracks."
+    ] },
+    { title: 'EMBER RIFT', lines: [
+      "The star went out and kept its shape anyway, a cold coal the size of a sky.",
+      "They take turns being warm. Whoever's turn it is stands close to those still waiting."
+    ] },
+    { title: 'QUIET EXPANSE', lines: [
+      "The star is too large and too bright, and everything under it has learned to make no unnecessary sound.",
+      "They stopped gathering in groups. A crowd draws attention, and attention is the only fatal thing."
+    ] },
+    { title: 'DUSK HAVEN', lines: [
+      "Everything here leans slightly toward the same point, and has for longer than anyone can account for.",
+      "They don't ask where the missing ones went. Everyone already knows the direction."
+    ] },
+    { title: 'LAST LIGHT', lines: [
+      "What's left of the star is small enough to hold and heavy enough to kill you for trying.",
+      "They live low, and slow, and close to the ground. Everyone here is shorter than they were born."
+    ] },
+    { title: 'CENTRE', lines: [
+      "There is no single star here, only what's left of a thousand, still drifting, still deciding what to become.",
+      "They never really arrive anywhere. Everyone you meet is already halfway to somewhere else."
+    ] }
+  ];
+
+  function defaultGalaxyCardsSeen() {
+    return new Array(10).fill(false);
+  }
+
+  function readGalaxyCardsSeen(obj) {
+    const ds = defaultGalaxyCardsSeen();
+    if (!Array.isArray(obj) || obj.length !== ds.length) return ds;
+    return ds.map((_, i) => obj[i] === true);
+  }
+
+  // Keku's death-screen voice (Block 22). Story mode only -- keyed off
+  // currentGalaxy directly, not first-time-gated like KEKU_LINES: these show
+  // on every relevant death, not just the first. Galaxies 1-3 (index 0-2)
+  // get one generic unattributed line; he hasn't noticed the player yet
+  // (that turn is KEKU_LINES[2], on entering galaxy 4). From galaxy 4 on, a
+  // unique attributed line per galaxy, escalating in intimacy, not menace.
+  const KEKU_DEATH_LIT_EARLY = 'It has gone quiet there.';
+  const KEKU_DEATH_DARK = 'THE DARK HOLDS.';
+  const KEKU_DEATH_LIT_LATE = [
+    "You went quiet. I felt it before I understood what it was.",
+    "There you go again. I know the shape of it now.",
+    "I listen for you afterward. I don't know why I still do that.",
+    "You always go the same way. I've come to expect it.",
+    "It's quieter after you than after most. I noticed that.",
+    "I know your going better than I know most arrivals.",
+    "You again. Some part of me waits for exactly this."
+  ];
+
   function loadSave() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
       if (raw) {
         const obj = JSON.parse(raw);
-        if (obj && obj.v === 8 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+        if (obj && obj.v === 9 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 8,
+            v: 9,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
@@ -592,12 +667,30 @@
             shop: readShop(obj.shop),
             kekuSeen: readKekuSeen(obj.kekuSeen),
             bestDepth: typeof obj.bestDepth === 'number' ? obj.bestDepth : 0,
-            fragmentsKilled: typeof obj.fragmentsKilled === 'number' ? obj.fragmentsKilled : 0
+            fragmentsKilled: typeof obj.fragmentsKilled === 'number' ? obj.fragmentsKilled : 0,
+            openingSeen: obj.openingSeen === true,
+            galaxyCardsSeen: readGalaxyCardsSeen(obj.galaxyCardsSeen)
+          };
+        }
+        if (obj && obj.v === 8 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+          return {
+            v: 9,
+            motes: obj.motes,
+            galaxies: obj.galaxies,
+            lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
+            deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
+            names: readNames(obj.names),
+            shop: readShop(obj.shop),
+            kekuSeen: readKekuSeen(obj.kekuSeen),
+            bestDepth: typeof obj.bestDepth === 'number' ? obj.bestDepth : 0,
+            fragmentsKilled: typeof obj.fragmentsKilled === 'number' ? obj.fragmentsKilled : 0,
+            openingSeen: true,   // upgrading from before the opening existed -- don't replay it on an existing save
+            galaxyCardsSeen: defaultGalaxyCardsSeen()
           };
         }
         if (obj && obj.v === 7 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 8,
+            v: 9,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
@@ -606,12 +699,14 @@
             shop: readShop(obj.shop),
             kekuSeen: readKekuSeen(obj.kekuSeen),
             bestDepth: typeof obj.bestDepth === 'number' ? obj.bestDepth : 0,
-            fragmentsKilled: 0
+            fragmentsKilled: 0,
+            openingSeen: true,
+            galaxyCardsSeen: defaultGalaxyCardsSeen()
           };
         }
         if (obj && obj.v === 6 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 8,
+            v: 9,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
@@ -620,12 +715,14 @@
             shop: readShop(obj.shop),
             kekuSeen: readKekuSeen(obj.kekuSeen),
             bestDepth: 0,
-            fragmentsKilled: 0
+            fragmentsKilled: 0,
+            openingSeen: true,
+            galaxyCardsSeen: defaultGalaxyCardsSeen()
           };
         }
         if (obj && obj.v === 5 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 8,
+            v: 9,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
@@ -634,12 +731,14 @@
             shop: readShop(obj.shop),
             kekuSeen: defaultKekuSeen(),
             bestDepth: 0,
-            fragmentsKilled: 0
+            fragmentsKilled: 0,
+            openingSeen: true,
+            galaxyCardsSeen: defaultGalaxyCardsSeen()
           };
         }
         if (obj && obj.v === 4 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 8,
+            v: 9,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
@@ -648,12 +747,14 @@
             shop: defaultShop(),
             kekuSeen: defaultKekuSeen(),
             bestDepth: 0,
-            fragmentsKilled: 0
+            fragmentsKilled: 0,
+            openingSeen: true,
+            galaxyCardsSeen: defaultGalaxyCardsSeen()
           };
         }
         if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 8,
+            v: 9,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
@@ -662,24 +763,26 @@
             shop: defaultShop(),
             kekuSeen: defaultKekuSeen(),
             bestDepth: 0,
-            fragmentsKilled: 0
+            fragmentsKilled: 0,
+            openingSeen: true,
+            galaxyCardsSeen: defaultGalaxyCardsSeen()
           };
         }
         if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
-          return { v: 8, motes: obj.motes, galaxies: obj.galaxies, lastPlayed: Date.now(), deepestHeld: obj.galaxies.filter((g) => g === 1).length, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0, fragmentsKilled: 0 };
+          return { v: 9, motes: obj.motes, galaxies: obj.galaxies, lastPlayed: Date.now(), deepestHeld: obj.galaxies.filter((g) => g === 1).length, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0, fragmentsKilled: 0, openingSeen: true, galaxyCardsSeen: defaultGalaxyCardsSeen() };
         }
         if (obj && obj.v === 1 && typeof obj.motes === 'number') {
-          return { v: 8, motes: obj.motes, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0, fragmentsKilled: 0 };
+          return { v: 9, motes: obj.motes, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0, fragmentsKilled: 0, openingSeen: true, galaxyCardsSeen: defaultGalaxyCardsSeen() };
         }
       }
     } catch (e) {}
-    return { v: 8, motes: 0, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0, fragmentsKilled: 0 };
+    return { v: 9, motes: 0, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0, fragmentsKilled: 0, openingSeen: false, galaxyCardsSeen: defaultGalaxyCardsSeen() };
   }
 
   function saveBank() {
     lastPlayed = Date.now();
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 8, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop, kekuSeen: kekuSeen, bestDepth: bestDepth, fragmentsKilled: fragmentsKilled }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 9, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop, kekuSeen: kekuSeen, bestDepth: bestDepth, fragmentsKilled: fragmentsKilled, openingSeen: openingSeen, galaxyCardsSeen: galaxyCardsSeen }));
     } catch (e) {}
   }
 
@@ -706,7 +809,7 @@
   player.x = canvas.width / 2;
   player.y = canvas.height / 2;
 
-  const STATE = { MAP: 'map', RUN: 'run', DEAD: 'dead', VICTORY: 'victory', LEAP: 'leap', SHOP: 'shop' };
+  const STATE = { MAP: 'map', RUN: 'run', DEAD: 'dead', VICTORY: 'victory', LEAP: 'leap', SHOP: 'shop', OPENING: 'opening' };
   const LEAP_DURATION_MS = 1500;
   let leapFrom = 0;
   let leapTo = 0;
@@ -940,18 +1043,33 @@
   let kekuSeen = initialSave.kekuSeen;
   let bestDepth = initialSave.bestDepth;
   fragmentsKilled = initialSave.fragmentsKilled;
+  let openingSeen = initialSave.openingSeen;
+  let galaxyCardsSeen = initialSave.galaxyCardsSeen;
   let decayedGalaxyIndex = -1;
   let deathCause = null;
   let deathKekuLine = null;
   let victoryKekuLine = null;
   let kekuMessageActive = false;
   let kekuMessageText = '';
+  let galaxyCardActive = false;
+  let galaxyCardIndex = -1;
+  // A Keku entry-line (galaxy 4/7/10 noticing) queued to show right after the
+  // galaxy card is dismissed, when both are first-time on the same DESCEND.
+  let pendingKekuLine = null;
 
   // First-time-ever check for a Keku line (0-5, matching KEKU_LINES). Marks
   // it seen and persists immediately so a refresh mid-message can't re-show it.
   function kekuLineFirstTime(index) {
     if (kekuSeen[index]) return false;
     kekuSeen[index] = true;
+    saveBank();
+    return true;
+  }
+
+  // Same pattern, for the galaxy entry cards (0-9, matching GALAXY_CARDS).
+  function galaxyCardFirstTime(index) {
+    if (galaxyCardsSeen[index]) return false;
+    galaxyCardsSeen[index] = true;
     saveBank();
     return true;
   }
@@ -1081,6 +1199,9 @@
     kekuFragmentTellActive = false;
     kekuFragmentTellTimer = 0;
     whiteoutAmount = 0;
+    galaxyCardActive = false;
+    galaxyCardIndex = -1;
+    pendingKekuLine = null;
     for (const k of Object.keys(upgradeLevels)) upgradeLevels[k] = 0;
     startWave(1);
   }
@@ -1094,6 +1215,34 @@
     mapScrollVelocity = 0;
     selectedGalaxy = 0;
     console.log('camZ', mapScroll, 'MAX_Z', mapMaxZ());
+  }
+
+  // Shared by the map's DESCEND button and the opening screen's "TAKE THE
+  // FIRST" (which forces index 0) -- world state is already clean from the
+  // most recent restart() in both cases, same invariant DESCEND always
+  // relied on. Shows the galaxy's entry card on first visit; if a Keku
+  // entry-line (galaxy 4/7/10 noticing) is ALSO first-time on this same
+  // entry, it's queued to show right after the card is dismissed rather
+  // than fighting it for the same overlay.
+  function enterGalaxy(index) {
+    currentGalaxy = index;
+    state = STATE.RUN;
+    startDrone();
+
+    let kekuLineIndex = -1;
+    if (currentGalaxy === 3) kekuLineIndex = 2;
+    else if (currentGalaxy === 6) kekuLineIndex = 3;
+    else if (currentGalaxy === 9) kekuLineIndex = 4;
+    const kekuLineText = (kekuLineIndex >= 0 && kekuLineFirstTime(kekuLineIndex)) ? KEKU_LINES[kekuLineIndex] : null;
+
+    if (galaxyCardFirstTime(currentGalaxy)) {
+      galaxyCardActive = true;
+      galaxyCardIndex = currentGalaxy;
+      pendingKekuLine = kekuLineText;
+    } else if (kekuLineText) {
+      kekuMessageActive = true;
+      kekuMessageText = kekuLineText;
+    }
   }
 
   function handleMapTap(x, y) {
@@ -1130,20 +1279,7 @@
     if (descendBounds &&
         x >= descendBounds.x && x <= descendBounds.x + descendBounds.w &&
         y >= descendBounds.y && y <= descendBounds.y + descendBounds.h) {
-      currentGalaxy = selectedGalaxy;
-      state = STATE.RUN;
-      startDrone();
-      // Keku notices at galaxy 4 (index 3), grows concerned at galaxy 7
-      // (index 6), and is waiting by galaxy 10 (index 9) -- each only the
-      // first time that galaxy is ever entered.
-      let kekuLineIndex = -1;
-      if (currentGalaxy === 3) kekuLineIndex = 2;
-      else if (currentGalaxy === 6) kekuLineIndex = 3;
-      else if (currentGalaxy === 9) kekuLineIndex = 4;
-      if (kekuLineIndex >= 0 && kekuLineFirstTime(kekuLineIndex)) {
-        kekuMessageActive = true;
-        kekuMessageText = KEKU_LINES[kekuLineIndex];
-      }
+      enterGalaxy(selectedGalaxy);
       return;
     }
     // Ported from the reference's tapSelect: closest projected galaxy within its
@@ -1211,8 +1347,23 @@
 
   function pointerDown(x, y) {
     unlockAudio();
+    if (galaxyCardActive) {
+      galaxyCardActive = false;
+      if (pendingKekuLine) {
+        kekuMessageActive = true;
+        kekuMessageText = pendingKekuLine;
+        pendingKekuLine = null;
+      }
+      return;
+    }
     if (kekuMessageActive) {
       kekuMessageActive = false;
+      return;
+    }
+    if (state === STATE.OPENING) {
+      openingSeen = true;
+      saveBank();
+      enterGalaxy(0);
       return;
     }
     if (state === STATE.MAP) {
@@ -1488,7 +1639,22 @@
       galaxies[currentGalaxy] = 0;
     }
     deathCause = cause;
-    deathKekuLine = (lostAHeldGalaxy && kekuLineFirstTime(1)) ? KEKU_LINES[1] : null;
+    // Block 22's death-screen voice: story mode only, keyed directly off
+    // currentGalaxy, shown on every relevant death (not first-time-gated
+    // like KEKU_LINES). Galaxies 1-3 (index 0-2): he hasn't noticed the
+    // player yet (that turn is KEKU_LINES[2], on first entering galaxy 4),
+    // so a lit-galaxy loss there gets one generic unattributed line, and a
+    // dark-galaxy death gets no line from him at all -- just the plain
+    // "THE DARK HOLDS." Galaxy 4 on: a unique attributed line per galaxy.
+    if (endlessMode) {
+      deathKekuLine = null;
+    } else if (!lostAHeldGalaxy) {
+      deathKekuLine = { text: KEKU_DEATH_DARK, attributed: false, isDarkLine: true };
+    } else if (currentGalaxy <= 2) {
+      deathKekuLine = { text: KEKU_DEATH_LIT_EARLY, attributed: false };
+    } else {
+      deathKekuLine = { text: KEKU_DEATH_LIT_LATE[currentGalaxy - 3], attributed: true };
+    }
     state = STATE.DEAD;
     stopDrone();
     bankedMotes += Math.round(runMotes);
@@ -1745,7 +1911,7 @@
   }
 
   function exportSave() {
-    const text = JSON.stringify({ v: 8, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop, kekuSeen: kekuSeen, bestDepth: bestDepth, fragmentsKilled: fragmentsKilled });
+    const text = JSON.stringify({ v: 9, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop, kekuSeen: kekuSeen, bestDepth: bestDepth, fragmentsKilled: fragmentsKilled, openingSeen: openingSeen, galaxyCardsSeen: galaxyCardsSeen });
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text)
         .then(() => { saveMessage = 'Copied to clipboard'; saveMessageUntil = currentTime + 2000; })
@@ -1758,7 +1924,7 @@
     if (!text) return;
     try {
       const obj = JSON.parse(text);
-      if (obj && obj.v === 8 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+      if (obj && obj.v === 9 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
         bankedMotes = obj.motes;
         galaxies = obj.galaxies.slice();
         deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
@@ -1767,6 +1933,21 @@
         kekuSeen = readKekuSeen(obj.kekuSeen);
         bestDepth = typeof obj.bestDepth === 'number' ? obj.bestDepth : 0;
         fragmentsKilled = typeof obj.fragmentsKilled === 'number' ? obj.fragmentsKilled : 0;
+        openingSeen = obj.openingSeen === true;
+        galaxyCardsSeen = readGalaxyCardsSeen(obj.galaxyCardsSeen);
+        saveBank();
+        saveMessage = 'Import successful';
+      } else if (obj && obj.v === 8 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+        bankedMotes = obj.motes;
+        galaxies = obj.galaxies.slice();
+        deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
+        NAMES = readNames(obj.names);
+        shop = readShop(obj.shop);
+        kekuSeen = readKekuSeen(obj.kekuSeen);
+        bestDepth = typeof obj.bestDepth === 'number' ? obj.bestDepth : 0;
+        fragmentsKilled = typeof obj.fragmentsKilled === 'number' ? obj.fragmentsKilled : 0;
+        openingSeen = true;
+        galaxyCardsSeen = defaultGalaxyCardsSeen();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 7 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -1778,6 +1959,8 @@
         kekuSeen = readKekuSeen(obj.kekuSeen);
         bestDepth = typeof obj.bestDepth === 'number' ? obj.bestDepth : 0;
         fragmentsKilled = 0;
+        openingSeen = true;
+        galaxyCardsSeen = defaultGalaxyCardsSeen();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 6 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -1789,6 +1972,8 @@
         kekuSeen = readKekuSeen(obj.kekuSeen);
         bestDepth = 0;
         fragmentsKilled = 0;
+        openingSeen = true;
+        galaxyCardsSeen = defaultGalaxyCardsSeen();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 5 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -1800,6 +1985,8 @@
         kekuSeen = defaultKekuSeen();
         bestDepth = 0;
         fragmentsKilled = 0;
+        openingSeen = true;
+        galaxyCardsSeen = defaultGalaxyCardsSeen();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 4 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -1811,6 +1998,8 @@
         kekuSeen = defaultKekuSeen();
         bestDepth = 0;
         fragmentsKilled = 0;
+        openingSeen = true;
+        galaxyCardsSeen = defaultGalaxyCardsSeen();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -1822,6 +2011,8 @@
         kekuSeen = defaultKekuSeen();
         bestDepth = 0;
         fragmentsKilled = 0;
+        openingSeen = true;
+        galaxyCardsSeen = defaultGalaxyCardsSeen();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -1833,6 +2024,8 @@
         kekuSeen = defaultKekuSeen();
         bestDepth = 0;
         fragmentsKilled = 0;
+        openingSeen = true;
+        galaxyCardsSeen = defaultGalaxyCardsSeen();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 1 && typeof obj.motes === 'number') {
@@ -1844,6 +2037,8 @@
         kekuSeen = defaultKekuSeen();
         bestDepth = 0;
         fragmentsKilled = 0;
+        openingSeen = true;
+        galaxyCardsSeen = defaultGalaxyCardsSeen();
         saveBank();
         saveMessage = 'Import successful';
       } else {
@@ -2068,6 +2263,10 @@
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    if (state === STATE.OPENING) {
+      drawOpening();
+      return;
+    }
     if (state === STATE.MAP) {
       drawMap();
       return;
@@ -2089,6 +2288,44 @@
       return;
     }
     drawRun();
+  }
+
+  function drawOpening() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.font = '17px sans-serif';
+    const lines = [
+      'The universe is going out.',
+      'Not dying. Being put out.',
+      'Someone is collecting the light, and taking it inward.',
+      'You are the only thing they cannot digest.'
+    ];
+    const maxW = Math.min(420, canvas.width - 60);
+    let ly = canvas.height / 2 - 70;
+    for (const paragraph of lines) {
+      const wrapped = wrapTextLines(paragraph, maxW);
+      for (const line of wrapped) {
+        ctx.fillText(line, canvas.width / 2, ly);
+        ly += 26;
+      }
+    }
+
+    const btnW = 220;
+    const btnH = 44;
+    const btnX = canvas.width / 2 - btnW / 2;
+    const btnY = ly + 40;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.fillRect(btnX, btnY, btnW, btnH);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(btnX, btnY, btnW, btnH);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText('TAKE THE FIRST', canvas.width / 2, btnY + btnH / 2 + 5);
+    ctx.textAlign = 'left';
   }
 
   function drawLeap() {
@@ -2400,6 +2637,36 @@
       ctx.textAlign = 'left';
     }
 
+    if (galaxyCardActive) {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const card = GALAXY_CARDS[galaxyCardIndex];
+      const maxW = Math.min(420, canvas.width - 60);
+      ctx.textAlign = 'center';
+
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText(card.title, canvas.width / 2, canvas.height / 2 - 60);
+
+      ctx.font = '15px sans-serif';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      let ly = canvas.height / 2 - 16;
+      for (const paragraph of card.lines) {
+        const wrapped = wrapTextLines(paragraph, maxW);
+        for (const line of wrapped) {
+          ctx.fillText(line, canvas.width / 2, ly);
+          ly += 22;
+        }
+        ly += 12;   // extra gap between the place line and the people line
+      }
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.font = '12px sans-serif';
+      ctx.fillText('Tap to continue', canvas.width / 2, ly + 8);
+      ctx.textAlign = 'left';
+    }
+
     ctx.restore();
 
     // The Fragment's whiteout, drawn last and in plain (un-shaken, un-translated)
@@ -2466,7 +2733,31 @@
       ctx.fillText('Tap to restart', canvas.width / 2, canvas.height / 2 + 74);
 
       if (deathKekuLine) {
-        drawOverheardLine(deathKekuLine, canvas.height / 2 + 108);
+        if (deathKekuLine.isDarkLine) {
+          ctx.textAlign = 'center';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+          ctx.font = '14px sans-serif';
+          ctx.fillText(deathKekuLine.text, canvas.width / 2, canvas.height / 2 + 108);
+          ctx.fillStyle = '#fff';
+        } else if (deathKekuLine.attributed) {
+          ctx.textAlign = 'center';
+          ctx.font = 'bold 12px sans-serif';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+          ctx.fillText('KEKU', canvas.width / 2, canvas.height / 2 + 108);
+
+          ctx.font = '14px sans-serif';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+          const maxW = Math.min(360, canvas.width - 60);
+          const lines = wrapTextLines('"' + deathKekuLine.text + '"', maxW);
+          let ly = canvas.height / 2 + 128;
+          for (const line of lines) {
+            ctx.fillText(line, canvas.width / 2, ly);
+            ly += 18;
+          }
+          ctx.fillStyle = '#fff';
+        } else {
+          drawOverheardLine(deathKekuLine.text, canvas.height / 2 + 108);
+        }
       }
     }
   }
@@ -2820,7 +3111,7 @@
       lastTime = timestamp;
       currentTime = timestamp;
 
-      if (state === STATE.RUN && !paused && !debugPaused && !kekuMessageActive) {
+      if (state === STATE.RUN && !paused && !debugPaused && !kekuMessageActive && !galaxyCardActive) {
         update(dt);
         updateWave(dt);
         updateKekuFragmentEffects(dt);
@@ -2852,7 +3143,11 @@
     }
   }
 
-  openMap();
+  if (openingSeen) {
+    openMap();
+  } else {
+    state = STATE.OPENING;
+  }
   requestAnimationFrame(loop);
 
   function setupDebugPanel() {
