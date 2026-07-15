@@ -368,7 +368,21 @@
     AFFIX_VOLATILE_RADIUS: 90,
     AFFIX_VOLATILE_DAMAGE: 35,
     AFFIX_MAGNETIC_RADIUS: 320,
-    AFFIX_MAGNETIC_STRENGTH: 55       // px/s at zero distance, falling off linearly to 0
+    AFFIX_MAGNETIC_STRENGTH: 55,      // px/s at zero distance, falling off linearly to 0
+    // Block 33 -- the open world. Spawn/despawn radii are relative to the
+    // player, not the screen; SPAWN_RADIUS itself is computed at runtime
+    // from the live canvas size (spawnRadius()), so only the fixed pad and
+    // multiplier live here.
+    CAMERA_LERP: 0.15,
+    SPAWN_RADIUS_PAD: 80,
+    DESPAWN_RADIUS_MULT: 2.5,
+    STAR_LAYER_1_SPEED: 0.3,
+    STAR_LAYER_2_SPEED: 0.6,
+    STAR_LAYER_1_SPACING: 260,        // px between grid cells sampled for a star point
+    STAR_LAYER_2_SPACING: 170,        // denser/closer layer -- smaller spacing reads as nearer
+    STAR_LAYER_1_ALPHA: 0.12,
+    STAR_LAYER_2_ALPHA: 0.22,
+    STAR_DOT_RADIUS: 1.1
   };
 
   const TUNE_DEFAULTS = { ...TUNE };
@@ -1739,6 +1753,26 @@
   player.x = canvas.width / 2;
   player.y = canvas.height / 2;
 
+  // Block 33 -- the open world. camera.x/y lerps toward player.x/y each
+  // frame (updateCamera, called from loop()); everything in drawRun() is
+  // drawn in world space and rendered through ctx.translate(canvas.width/2
+  // - camera.x, canvas.height/2 - camera.y), so the Warden always renders
+  // at screen centre without needing its own special case.
+  const camera = { x: player.x, y: player.y };
+
+  function updateCamera() {
+    camera.x += (player.x - camera.x) * TUNE.CAMERA_LERP;
+    camera.y += (player.y - camera.y) * TUNE.CAMERA_LERP;
+  }
+
+  function spawnRadius() {
+    return Math.hypot(canvas.width, canvas.height) / 2 + TUNE.SPAWN_RADIUS_PAD;
+  }
+
+  function despawnRadius() {
+    return spawnRadius() * TUNE.DESPAWN_RADIUS_MULT;
+  }
+
   const STATE = { MAP: 'map', RUN: 'run', DEAD: 'dead', VICTORY: 'victory', LEAP: 'leap', SHOP: 'shop', OPENING: 'opening', TITLE: 'title', SETTINGS: 'settings' };
   const LEAP_DURATION_MS = 1500;
   let leapFrom = 0;
@@ -1794,13 +1828,11 @@
   }
 
   function spawnEnemy(n) {
-    const pad = 40;
-    const edge = Math.floor(Math.random() * 4);
-    let x, y;
-    if (edge === 0) { x = Math.random() * canvas.width; y = -pad; }
-    else if (edge === 1) { x = canvas.width + pad; y = Math.random() * canvas.height; }
-    else if (edge === 2) { x = Math.random() * canvas.width; y = canvas.height + pad; }
-    else { x = -pad; y = Math.random() * canvas.height; }
+    // Block 33 -- spawns in a ring around the PLAYER, not the screen edge.
+    const spawnAngle = Math.random() * Math.PI * 2;
+    const r = spawnRadius();
+    const x = player.x + Math.cos(spawnAngle) * r;
+    const y = player.y + Math.sin(spawnAngle) * r;
 
     const type = pickEnemyType(n);
     // Rock: "40% more HP... they do not stagger" -- the HP half of that is
@@ -1874,13 +1906,11 @@
   }
 
   function spawnBoss(n) {
-    const pad = 60;
-    const edge = Math.floor(Math.random() * 4);
-    let x, y;
-    if (edge === 0) { x = Math.random() * canvas.width; y = -pad; }
-    else if (edge === 1) { x = canvas.width + pad; y = Math.random() * canvas.height; }
-    else if (edge === 2) { x = Math.random() * canvas.width; y = canvas.height + pad; }
-    else { x = -pad; y = Math.random() * canvas.height; }
+    // Block 33 -- spawns in a ring around the PLAYER, not the screen edge.
+    const spawnAngle = Math.random() * Math.PI * 2;
+    const r = spawnRadius();
+    const x = player.x + Math.cos(spawnAngle) * r;
+    const y = player.y + Math.sin(spawnAngle) * r;
     const growth = Math.max(0, n - TUNE.WAVES_PER_GALAXY);
     const herald = currentGalaxyIndex();
     const hp = Math.floor(TUNE.BOSS_HP * (1 + growth * TUNE.WAVE_HP_GROWTH_PER_WAVE) * heraldHpMult(herald));
@@ -1927,13 +1957,11 @@
   }
 
   function spawnKekuFragment() {
-    const pad = 60;
-    const edge = Math.floor(Math.random() * 4);
-    let x, y;
-    if (edge === 0) { x = Math.random() * canvas.width; y = -pad; }
-    else if (edge === 1) { x = canvas.width + pad; y = Math.random() * canvas.height; }
-    else if (edge === 2) { x = Math.random() * canvas.width; y = canvas.height + pad; }
-    else { x = -pad; y = Math.random() * canvas.height; }
+    // Block 33 -- spawns in a ring around the PLAYER, not the screen edge.
+    const spawnAngle = Math.random() * Math.PI * 2;
+    const r = spawnRadius();
+    const x = player.x + Math.cos(spawnAngle) * r;
+    const y = player.y + Math.sin(spawnAngle) * r;
     // No fanfare on arrival -- no sfxBossAppears(), no drone restart.
     boss = {
       x, y, vx: 0, vy: 0, angle: 0,
@@ -2206,6 +2234,8 @@
   function restart() {
     player.x = canvas.width / 2;
     player.y = canvas.height / 2;
+    camera.x = player.x;
+    camera.y = player.y;
     player.vx = 0;
     player.vy = 0;
     player.angle = -Math.PI / 2;
@@ -2789,15 +2819,8 @@
       player.y += pull.y * dt;
     }
 
-    if (player.x <= TUNE.MARGIN || player.x >= window.innerWidth - TUNE.MARGIN) {
-      player.vx = 0;
-    }
-    player.x = Math.max(TUNE.MARGIN, Math.min(window.innerWidth - TUNE.MARGIN, player.x));
-
-    if (player.y <= TUNE.MARGIN || player.y >= window.innerHeight - TUNE.MARGIN) {
-      player.vy = 0;
-    }
-    player.y = Math.max(TUNE.MARGIN, Math.min(window.innerHeight - TUNE.MARGIN, player.y));
+    // Block 33 -- no boundaries. The world is unbounded; the old
+    // screen-edge clamp (and vx/vy zeroing on hitting it) is gone.
 
     if (speed > 0.001) {
       const targetAngle = Math.atan2(player.vy, player.vx);
@@ -3036,8 +3059,8 @@
       }
 
       // MAGNETIC: "pulls the player gently toward it while alive" -- a
-      // positional nudge, same pattern as Gravity/Scattering, re-clamped
-      // to the margins since it runs after update()'s own clamp this frame.
+      // positional nudge, same pattern as Gravity/Scattering. Block 33: no
+      // re-clamp anymore, the world has no margins to clamp to.
       if (enemy.elite && enemy.affix === 'magnetic' && state === STATE.RUN) {
         const mdx = enemy.x - player.x, mdy = enemy.y - player.y;
         const mdist = Math.hypot(mdx, mdy);
@@ -3045,8 +3068,6 @@
           const s = TUNE.AFFIX_MAGNETIC_STRENGTH * (1 - mdist / TUNE.AFFIX_MAGNETIC_RADIUS);
           player.x += (mdx / mdist) * s * dt;
           player.y += (mdy / mdist) * s * dt;
-          player.x = Math.max(TUNE.MARGIN, Math.min(window.innerWidth - TUNE.MARGIN, player.x));
-          player.y = Math.max(TUNE.MARGIN, Math.min(window.innerHeight - TUNE.MARGIN, player.y));
         }
       }
 
@@ -3081,6 +3102,21 @@
             killPlayer('enemy');
           }
         }
+      }
+    }
+
+    // Block 33 -- the world is unbounded, so a swarm member that falls too
+    // far behind (kited away, or unlucky pathing) gets recycled instead of
+    // drifting forever: silently removed and respawned in the ring ahead
+    // of the player. A position swap, not a kill or a new spawn, so
+    // waveSpawned/waveKilled/waveBudget bookkeeping is untouched. Transfer
+    // halves are boss-tied minions, not swarm fodder, so they're exempt.
+    const dr = despawnRadius();
+    for (let i = 0; i < enemies.length; i++) {
+      const enemy = enemies[i];
+      if (enemy.type === 'transfer_half') continue;
+      if (Math.hypot(enemy.x - player.x, enemy.y - player.y) > dr) {
+        enemies[i] = spawnEnemy(difficultyWave());
       }
     }
   }
@@ -3143,15 +3179,12 @@
         addAcidStack();
       }
     } else if (boss.herald === HERALD_SCATTERING) {
-      // "Constantly pushes you away." Re-clamped to the margins right
-      // after, same as update()'s own movement -- this runs after that
-      // clamp already happened this frame, so it needs its own.
+      // "Constantly pushes you away." Block 33: no re-clamp anymore, the
+      // world has no margins to clamp to.
       const pdx2 = player.x - boss.x, pdy2 = player.y - boss.y;
       const plen = Math.hypot(pdx2, pdy2) || 1;
       player.x += (pdx2 / plen) * TUNE.HERALD_SCATTERING_PUSH_STRENGTH * dt;
       player.y += (pdy2 / plen) * TUNE.HERALD_SCATTERING_PUSH_STRENGTH * dt;
-      player.x = Math.max(TUNE.MARGIN, Math.min(window.innerWidth - TUNE.MARGIN, player.x));
-      player.y = Math.max(TUNE.MARGIN, Math.min(window.innerHeight - TUNE.MARGIN, player.y));
     }
 
     const touchDist = TUNE.PLAYER_RADIUS + boss.radius;
@@ -3929,7 +3962,12 @@
             }
           }
         }
-      } else if (nx < 0 || nx > canvas.width || ny < 0 || ny > canvas.height) {
+      } else if (Math.hypot(nx - camera.x, ny - camera.y) > spawnRadius()) {
+        // Block 33 -- canvas.width/height bounds meant nothing once the
+        // camera exists (a bullet's world x/y no longer has any relation
+        // to the screen rect); despawn once it's left the visible area
+        // around the camera instead, same radius the swarm spawns just
+        // outside of.
         bullet.dead = true;
       }
     }
@@ -4058,6 +4096,49 @@
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 
+  // Block 33 -- deterministic integer hash, NOT Math.random(): a star's
+  // position must be stable frame to frame (only the camera moves), so
+  // each grid cell's jitter is derived purely from its own coordinates.
+  function starHash(ix, iy, seed) {
+    let h = ix * 374761393 + iy * 668265263 + seed * 2147483647;
+    h = (h ^ (h >>> 13)) * 1274126177;
+    h = h ^ (h >>> 16);
+    return (h >>> 0) / 4294967296;
+  }
+
+  // One parallax layer: an infinite grid of cells at `spacing`, one dim dot
+  // per cell, sampled only across the cells currently visible. Computes its
+  // own screen position directly (camera * speedMult) rather than relying
+  // on drawRun()'s world-transform block, since a slower-than-1x layer
+  // needs a different apparent camera position than the foreground.
+  function drawStarLayer(speedMult, spacing, alpha, seed) {
+    const camX = camera.x * speedMult;
+    const camY = camera.y * speedMult;
+    const halfW = canvas.width / 2;
+    const halfH = canvas.height / 2;
+    const minCol = Math.floor((camX - halfW) / spacing) - 1;
+    const maxCol = Math.floor((camX + halfW) / spacing) + 1;
+    const minRow = Math.floor((camY - halfH) / spacing) - 1;
+    const maxRow = Math.floor((camY + halfH) / spacing) + 1;
+    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+    for (let col = minCol; col <= maxCol; col++) {
+      for (let row = minRow; row <= maxRow; row++) {
+        const worldX = col * spacing + starHash(col, row, seed) * spacing;
+        const worldY = row * spacing + starHash(row, col, seed + 1) * spacing;
+        const sx = worldX - camX + halfW;
+        const sy = worldY - camY + halfH;
+        ctx.beginPath();
+        ctx.arc(sx, sy, TUNE.STAR_DOT_RADIUS, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawStarfield() {
+    drawStarLayer(TUNE.STAR_LAYER_1_SPEED, TUNE.STAR_LAYER_1_SPACING, TUNE.STAR_LAYER_1_ALPHA, 1);
+    drawStarLayer(TUNE.STAR_LAYER_2_SPEED, TUNE.STAR_LAYER_2_SPACING, TUNE.STAR_LAYER_2_ALPHA, 97);
+  }
+
   function drawRun() {
     // Endless recombines the ten authored star types rather than ever
     // introducing new ones -- the hue index just wraps as depth grows, but
@@ -4066,14 +4147,21 @@
     const pal = endlessMode
       ? galaxyPalette((endlessDepth - 1) % GALAXY_DATA.length, endlessDepth - 1)
       : galaxyPalette(currentGalaxy);
-    // No fill here -- the void is always pure #000. draw() already cleared
-    // the canvas to black before dispatching here; nothing goes behind the
-    // entities, ever.
+    // The void is pure #000 (draw() already cleared to black) with two
+    // sparse, dim parallax star layers on top -- Block 33's "you can feel
+    // your own speed" backdrop -- before any world-space entity is drawn.
+    drawStarfield();
 
     const shakeX = (Math.random() * 2 - 1) * shakeStrength * TUNE.SHAKE_INTENSITY;
     const shakeY = (Math.random() * 2 - 1) * shakeStrength * TUNE.SHAKE_INTENSITY;
     ctx.save();
-    ctx.translate(shakeX, shakeY);
+    // Block 33 -- the camera. Every world-space draw call below reads its
+    // own raw x/y (player.x, enemy.x, mote.x, ...) completely unchanged;
+    // this single translate is what turns those into screen positions,
+    // recentring the Warden at screen middle and everything else relative
+    // to it. Composed with the shake offset, which stays a small extra
+    // jitter on top rather than its own thing.
+    ctx.translate(canvas.width / 2 - camera.x + shakeX, canvas.height / 2 - camera.y + shakeY);
     // Neon wireframe: everything from here to the matching ctx.restore() is
     // additive -- light adds to light, and adds nothing to the black void.
     // save()/restore() captures globalCompositeOperation, so this doesn't
@@ -4458,6 +4546,12 @@
     ctx.stroke();
     ctx.globalAlpha = 1;
 
+    ctx.restore();   // closes the player ship's own local save
+
+    // Block 33 -- closes the OUTER camera/shake save() opened above (was
+    // previously only closed at the very end of drawRun(), which meant the
+    // HUD/menus below were incorrectly panning and shaking along with the
+    // world). Everything from here down is screen-locked.
     ctx.restore();
 
     drawDamageVignette();
@@ -4744,7 +4838,9 @@
       ctx.textAlign = 'left';
     }
 
-    ctx.restore();
+    // Block 33 -- the camera/shake save() was already closed right after
+    // the player ship's draw, above; everything since (vignette through
+    // here) was screen-locked HUD, no matching restore() needed here.
 
     // The Fragment's whiteout, drawn last and in plain (un-shaken, un-translated)
     // canvas coordinates so it uniformly covers everything -- world, HUD,
@@ -5265,6 +5361,7 @@
 
       if (state === STATE.RUN && !paused && !debugPaused && !kekuMessageActive && !galaxyCardActive) {
         update(dt);
+        updateCamera();
         updateWave(dt);
         updateKekuFragmentEffects(dt);
         // Frozen, not just unspawned: during the tell, whatever's still in
