@@ -153,6 +153,12 @@
     CHASE_WEIGHT_TOUCHING: 0.6, // lower pull once already at contact — press, don't grind
     PLAYER_MAX_HP: 100,
     CONTACT_DPS: 12,
+    // Block 32 -- brief invulnerability on regaining control after a pause
+    // (level-up draft close, pause-menu resume), so a swarm that closed in
+    // while the game was frozen can't land a free, unavoidable hit the
+    // instant control returns. Ends early once the player actually moves.
+    RESUME_INVULN: 1.0,
+    RESUME_INVULN_MOVE_DIST: 24,
     FIRE_RATE: 0.45,
     BULLET_SPEED: 405.6,
     BULLET_DAMAGE: 10,
@@ -1722,7 +1728,13 @@
     acidStackUntil: [],
     iceStackUntil: [],
     lastAcidStackAt: -Infinity,
-    lastIceStackAt: -Infinity
+    lastIceStackAt: -Infinity,
+    // Block 32 -- resume invulnerability. invulnUntil is a currentTime-domain
+    // deadline (ms); invulnFromX/Y is where the player was when it started,
+    // so movement past RESUME_INVULN_MOVE_DIST can end it early.
+    invulnUntil: 0,
+    invulnFromX: 0,
+    invulnFromY: 0
   };
   player.x = canvas.width / 2;
   player.y = canvas.height / 2;
@@ -2205,6 +2217,7 @@
     player.iceStackUntil = [];
     player.lastAcidStackAt = -Infinity;
     player.lastIceStackAt = -Infinity;
+    player.invulnUntil = 0;
     enemies.length = 0;
     trail.length = 0;
     firePools.length = 0;
@@ -2236,6 +2249,21 @@
     pendingKekuLine = null;
     for (const k of Object.keys(upgradeLevels)) upgradeLevels[k] = 0;
     startWave(1);
+  }
+
+  // Block 32 -- resume invulnerability. playerInvulnerable() gates every
+  // player-damage site; grantResumeInvuln() is called at the two moments
+  // control returns mid-run (draft closes, pause menu's RESUME), never on
+  // entering a fresh galaxy or a fresh run, since there's never a swarm
+  // already touching the player at those moments.
+  function playerInvulnerable() {
+    return currentTime < player.invulnUntil;
+  }
+
+  function grantResumeInvuln() {
+    player.invulnUntil = currentTime + TUNE.RESUME_INVULN * 1000;
+    player.invulnFromX = player.x;
+    player.invulnFromY = player.y;
   }
 
   // The ONLY way state becomes STATE.MAP. camZ (mapScroll) and the selected
@@ -2372,6 +2400,7 @@
         x >= resumeButtonBounds.x && x <= resumeButtonBounds.x + resumeButtonBounds.w &&
         y >= resumeButtonBounds.y && y <= resumeButtonBounds.y + resumeButtonBounds.h) {
       paused = false;
+      grantResumeInvuln();
       return;
     }
     if (abandonButtonBounds &&
@@ -2738,6 +2767,13 @@
     player.x += player.vx * dt;
     player.y += player.vy * dt;
 
+    // Block 32 -- moving a meaningful distance means control has genuinely
+    // been regained and used, not just ticking down a timer while still
+    // frozen in place from the swarm that was already on top of the player.
+    if (playerInvulnerable() && Math.hypot(player.x - player.invulnFromX, player.y - player.invulnFromY) >= TUNE.RESUME_INVULN_MOVE_DIST) {
+      player.invulnUntil = currentTime;
+    }
+
     // Block 25 -- Wind/Gravity are positional drift, not added momentum:
     // nudging x/y directly (rather than vx/vy) means they can't compound
     // into a runaway velocity frame over frame, and they still fall inside
@@ -2985,7 +3021,7 @@
       // not the player is actually touching the enemy.
       if (el === 'Radiation' && state === STATE.RUN) {
         const rdist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
-        if (rdist < TUNE.ELEMENT_RADIATION_RADIUS + enemy.radius) {
+        if (rdist < TUNE.ELEMENT_RADIATION_RADIUS + enemy.radius && !playerInvulnerable()) {
           player.hp -= TUNE.ELEMENT_RADIATION_DPS * dt;
           player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
           sfxPlayerHit();
@@ -3029,16 +3065,21 @@
 
         // A Transfer half is boss-tier, not swarm-tier.
         const dps = enemy.type === 'transfer_half' ? TUNE.BOSS_DPS * TUNE.HERALD_TRANSFER_HALF_DPS_MULT : TUNE.CONTACT_DPS;
-        player.hp -= dps * dt;
-        player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
-        sfxPlayerHit();
-        if (el === 'Acid') addAcidStack();
-        if (el === 'Ice') addIceStack();
-        // Radiation above can already have killed the player this same
-        // frame (a separate damage source in this same loop) -- guard
-        // against calling killPlayer twice, which would double-bank motes.
-        if (player.hp <= 0 && state === STATE.RUN) {
-          killPlayer('enemy');
+        // Block 32 -- position correction above still applies during resume
+        // invulnerability (an enemy already in contact stays pinned rather
+        // than clipping through); only the damage itself is skipped.
+        if (!playerInvulnerable()) {
+          player.hp -= dps * dt;
+          player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
+          sfxPlayerHit();
+          if (el === 'Acid') addAcidStack();
+          if (el === 'Ice') addIceStack();
+          // Radiation above can already have killed the player this same
+          // frame (a separate damage source in this same loop) -- guard
+          // against calling killPlayer twice, which would double-bank motes.
+          if (player.hp <= 0 && state === STATE.RUN) {
+            killPlayer('enemy');
+          }
         }
       }
     }
@@ -3074,7 +3115,7 @@
       const auraRadius = boss.herald === HERALD_ABLATION ? TUNE.HERALD_ABLATION_AURA_RADIUS : TUNE.ELEMENT_RADIATION_RADIUS;
       const auraDps = boss.herald === HERALD_ABLATION ? TUNE.HERALD_ABLATION_AURA_DPS : TUNE.ELEMENT_RADIATION_DPS;
       const rdist = Math.hypot(boss.x - player.x, boss.y - player.y);
-      if (rdist < auraRadius + boss.radius) {
+      if (rdist < auraRadius + boss.radius && !playerInvulnerable()) {
         player.hp -= auraDps * dt;
         player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
         sfxPlayerHit();
@@ -3126,13 +3167,17 @@
         boss.y = player.y;
       }
 
-      player.hp -= (boss.isFragment ? TUNE.KEKU_DPS : TUNE.BOSS_DPS) * dt;
-      player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
-      sfxPlayerHit();
-      if (el === 'Acid') addAcidStack();
-      if (el === 'Ice') addIceStack();
-      if (player.hp <= 0 && state === STATE.RUN) {
-        killPlayer('boss');
+      // Block 32 -- see the matching enemy-contact comment above: position
+      // correction still applies, only the damage is skipped.
+      if (!playerInvulnerable()) {
+        player.hp -= (boss.isFragment ? TUNE.KEKU_DPS : TUNE.BOSS_DPS) * dt;
+        player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
+        sfxPlayerHit();
+        if (el === 'Acid') addAcidStack();
+        if (el === 'Ice') addIceStack();
+        if (player.hp <= 0 && state === STATE.RUN) {
+          killPlayer('boss');
+        }
       }
     }
   }
@@ -3263,7 +3308,7 @@
     for (let i = firePools.length - 1; i >= 0; i--) {
       const pool = firePools[i];
       if (currentTime >= pool.until) { firePools.splice(i, 1); continue; }
-      if (Math.hypot(player.x - pool.x, player.y - pool.y) < TUNE.ELEMENT_FIRE_POOL_RADIUS) {
+      if (Math.hypot(player.x - pool.x, player.y - pool.y) < TUNE.ELEMENT_FIRE_POOL_RADIUS && !playerInvulnerable()) {
         player.hp -= TUNE.ELEMENT_FIRE_POOL_DPS * dt;
         player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
         sfxPlayerHit();
@@ -3290,7 +3335,7 @@
     for (let i = plasmaTrails.length - 1; i >= 0; i--) {
       const seg = plasmaTrails[i];
       if (currentTime >= seg.until) { plasmaTrails.splice(i, 1); continue; }
-      if (Math.hypot(player.x - seg.x, player.y - seg.y) < TUNE.ELEMENT_PLASMA_TRAIL_RADIUS) {
+      if (Math.hypot(player.x - seg.x, player.y - seg.y) < TUNE.ELEMENT_PLASMA_TRAIL_RADIUS && !playerInvulnerable()) {
         player.hp -= TUNE.ELEMENT_PLASMA_TRAIL_DPS * dt;
         player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
         sfxPlayerHit();
@@ -3303,7 +3348,7 @@
       if ((currentTime - s.born) / 1000 >= TUNE.ELEMENT_SHARD_LIFE) { shards.splice(i, 1); continue; }
       s.x += s.vx * dt;
       s.y += s.vy * dt;
-      if (Math.hypot(player.x - s.x, player.y - s.y) < TUNE.PLAYER_RADIUS + TUNE.ELEMENT_SHARD_RADIUS) {
+      if (Math.hypot(player.x - s.x, player.y - s.y) < TUNE.PLAYER_RADIUS + TUNE.ELEMENT_SHARD_RADIUS && !playerInvulnerable()) {
         shards.splice(i, 1);
         player.hp -= TUNE.ELEMENT_SHARD_DAMAGE;
         player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
@@ -3347,6 +3392,7 @@
     }
     paused = false;
     draftOptions = [];
+    grantResumeInvuln();
   }
 
   function exportSave() {
@@ -3863,7 +3909,7 @@
                 } else if (closest.affix === 'volatile') {
                   // "Do not kill it while standing next to it."
                   const vdist = Math.hypot(player.x - closest.x, player.y - closest.y);
-                  if (vdist < TUNE.AFFIX_VOLATILE_RADIUS && state === STATE.RUN) {
+                  if (vdist < TUNE.AFFIX_VOLATILE_RADIUS && state === STATE.RUN && !playerInvulnerable()) {
                     player.hp -= TUNE.AFFIX_VOLATILE_DAMAGE;
                     player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
                     sfxPlayerHit();
@@ -4378,6 +4424,17 @@
     ctx.save();
     ctx.translate(player.x, player.y - TUNE.THUMB_OFFSET);
     ctx.rotate(player.angle);
+
+    // Block 32 -- resume-invulnerability pulse. ctx.filter multiplies through
+    // strokeShipPath's own internal alpha passes (it sets globalAlpha itself,
+    // repeatedly) rather than being clobbered by them; restored for free by
+    // the ctx.restore() below. Distinct signal from damage feedback (which
+    // deliberately never touches the ship, see below): this means "can't be
+    // hit right now," not "just got hit."
+    if (playerInvulnerable()) {
+      const pulseT = (Math.sin(currentTime / 55) + 1) / 2;
+      ctx.filter = `opacity(${Math.round((0.45 + 0.55 * pulseT) * 100)}%)`;
+    }
 
     // Always white-hot, never flashed or recoloured -- player damage reads
     // through the screen-edge vignette instead (see below), not the ship.
