@@ -130,6 +130,108 @@
   // needed here (unlike the old SHIP_SCALE approach).
   const SHIP_STROKE_PX = { hollow: 1.5, lance: 2.5, anchor: 4, warden: 3 };
 
+  // Block 34 -- loadout ship silhouettes. Same construction convention as
+  // the four above (local space, nose on +X, bilateral top/bottom symmetry,
+  // final on-screen size baked into the vertex list, no runtime scale). The
+  // WARDEN loadout entry reuses SHIP_WARDEN directly -- "a clean swept
+  // delta, long nose, twin rear nacelles, notched tail" is exactly what
+  // that shape already is, unchanged since Block 1.
+  //
+  //   FIRE     -- aggressive dart, wings raked far back and out, twin tail
+  //               spike with a narrow notch. Everything leans forward.
+  //   ELECTRIC -- twin parallel spires running almost the full length, with
+  //               a deep narrow gap between them reaching nearly to the
+  //               nose -- a tuning fork, not a hull.
+  //   ROCK     -- wide flat-shouldered hexagon, blunt-ish nose, the
+  //               shortest nose-to-tail reach of the six. Heavy, blocky.
+  //   GRAVITY  -- a small central core with two crescent horns swept
+  //               forward around it, separated from the core by a shallow
+  //               concave notch. The only one of the six with no long axis
+  //               spike -- reads as alien rather than built.
+  //   ICE      -- narrow needle, minimal vertex count, two thin symmetric
+  //               fin flares plus the trailing spike itself as a third --
+  //               "tri-fin," spare and cold.
+  const FIRE_SIZE = 24;
+  const SHIP_LOADOUT_FIRE = [
+    [FIRE_SIZE * 1.0, 0], [FIRE_SIZE * 0.3, FIRE_SIZE * 0.06],
+    [FIRE_SIZE * 0.05, FIRE_SIZE * 0.12], [FIRE_SIZE * -0.15, FIRE_SIZE * 0.18],
+    [FIRE_SIZE * -0.75, FIRE_SIZE * 0.62], [FIRE_SIZE * -0.55, FIRE_SIZE * 0.2],
+    [FIRE_SIZE * -0.9, FIRE_SIZE * 0.08], [FIRE_SIZE * -0.75, 0],
+    [FIRE_SIZE * -0.9, FIRE_SIZE * -0.08], [FIRE_SIZE * -0.55, FIRE_SIZE * -0.2],
+    [FIRE_SIZE * -0.75, FIRE_SIZE * -0.62], [FIRE_SIZE * -0.15, FIRE_SIZE * -0.18],
+    [FIRE_SIZE * 0.05, FIRE_SIZE * -0.12], [FIRE_SIZE * 0.3, FIRE_SIZE * -0.06]
+  ];
+
+  const ELECTRIC_SIZE = 24;
+  const SHIP_LOADOUT_ELECTRIC = [
+    [ELECTRIC_SIZE * 1.0, 0],
+    [ELECTRIC_SIZE * 0.7, ELECTRIC_SIZE * 0.09],
+    [ELECTRIC_SIZE * -0.95, ELECTRIC_SIZE * 0.24],
+    [ELECTRIC_SIZE * -1.0, ELECTRIC_SIZE * 0.16],
+    [ELECTRIC_SIZE * -0.85, ELECTRIC_SIZE * 0.08],
+    [ELECTRIC_SIZE * 0.15, ELECTRIC_SIZE * 0.05],
+    [ELECTRIC_SIZE * 0.15, ELECTRIC_SIZE * -0.05],
+    [ELECTRIC_SIZE * -0.85, ELECTRIC_SIZE * -0.08],
+    [ELECTRIC_SIZE * -1.0, ELECTRIC_SIZE * -0.16],
+    [ELECTRIC_SIZE * -0.95, ELECTRIC_SIZE * -0.24],
+    [ELECTRIC_SIZE * 0.7, ELECTRIC_SIZE * -0.09]
+  ];
+
+  const ROCK_SIZE = 25;
+  const SHIP_LOADOUT_ROCK = [
+    [ROCK_SIZE * 0.75, 0],
+    [ROCK_SIZE * 0.4, ROCK_SIZE * 0.38],
+    [ROCK_SIZE * -0.05, ROCK_SIZE * 0.62],
+    [ROCK_SIZE * -0.5, ROCK_SIZE * 0.62],
+    [ROCK_SIZE * -0.85, ROCK_SIZE * 0.28],
+    [ROCK_SIZE * -0.85, ROCK_SIZE * -0.28],
+    [ROCK_SIZE * -0.5, ROCK_SIZE * -0.62],
+    [ROCK_SIZE * -0.05, ROCK_SIZE * -0.62],
+    [ROCK_SIZE * 0.4, ROCK_SIZE * -0.38]
+  ];
+
+  const GRAVITY_SIZE = 23;
+  const SHIP_LOADOUT_GRAVITY = [
+    [GRAVITY_SIZE * 0.55, 0],
+    [GRAVITY_SIZE * 0.22, GRAVITY_SIZE * 0.12],
+    [GRAVITY_SIZE * 0.04, GRAVITY_SIZE * 0.24],
+    [GRAVITY_SIZE * 0.5, GRAVITY_SIZE * 0.52],
+    [GRAVITY_SIZE * 0.12, GRAVITY_SIZE * 0.66],
+    [GRAVITY_SIZE * -0.38, GRAVITY_SIZE * 0.48],
+    [GRAVITY_SIZE * -0.62, GRAVITY_SIZE * 0.18],
+    [GRAVITY_SIZE * -0.7, 0],
+    [GRAVITY_SIZE * -0.62, GRAVITY_SIZE * -0.18],
+    [GRAVITY_SIZE * -0.38, GRAVITY_SIZE * -0.48],
+    [GRAVITY_SIZE * 0.12, GRAVITY_SIZE * -0.66],
+    [GRAVITY_SIZE * 0.5, GRAVITY_SIZE * -0.52],
+    [GRAVITY_SIZE * 0.04, GRAVITY_SIZE * -0.24],
+    [GRAVITY_SIZE * 0.22, GRAVITY_SIZE * -0.12]
+  ];
+
+  const ICE_SIZE = 22;
+  const SHIP_LOADOUT_ICE = [
+    [ICE_SIZE * 1.0, 0],
+    [ICE_SIZE * 0.1, ICE_SIZE * 0.06],
+    [ICE_SIZE * -0.15, ICE_SIZE * 0.42],
+    [ICE_SIZE * -0.35, ICE_SIZE * 0.1],
+    [ICE_SIZE * -0.9, ICE_SIZE * 0.06],
+    [ICE_SIZE * -0.9, ICE_SIZE * -0.06],
+    [ICE_SIZE * -0.35, ICE_SIZE * -0.1],
+    [ICE_SIZE * -0.15, ICE_SIZE * -0.42],
+    [ICE_SIZE * 0.1, ICE_SIZE * -0.06]
+  ];
+
+  // Lookup by SHIPS[].key -- the single source both the RUN player draw and
+  // the EQUIP screen's icons read from, so the two can never drift apart.
+  const SHIP_LOADOUT_SHAPES = {
+    warden: { points: SHIP_WARDEN, size: WARDEN_SIZE, stroke: SHIP_STROKE_PX.warden },
+    fire: { points: SHIP_LOADOUT_FIRE, size: FIRE_SIZE, stroke: 3 },
+    electric: { points: SHIP_LOADOUT_ELECTRIC, size: ELECTRIC_SIZE, stroke: 2.5 },
+    rock: { points: SHIP_LOADOUT_ROCK, size: ROCK_SIZE, stroke: 3.5 },
+    gravity: { points: SHIP_LOADOUT_GRAVITY, size: GRAVITY_SIZE, stroke: 2.5 },
+    ice: { points: SHIP_LOADOUT_ICE, size: ICE_SIZE, stroke: 2 }
+  };
+
   const DEBUG = true;
 
   const TUNE = {
@@ -1333,6 +1435,35 @@
     ctx.globalAlpha = 1;
     ctx.lineWidth = lineWidth;
     ctx.stroke();
+  }
+
+  // Block 34 -- "on the ship-select screen, each ship renders in its
+  // ELEMENT'S colour... the player learns the colour language from the
+  // menu." Reuses each galaxy's own hue (GALAXY_DATA), the same colour
+  // that galaxy's hazards/bosses/motes already render in -- so equipping
+  // FIRE and later entering the Fire galaxy is the same colour twice, not
+  // a second, unrelated palette. Warden has no element: white.
+  function shipMenuColor(def) {
+    if (!def.element) return '#fff';
+    const gi = GALAXY_DATA.findIndex((g) => g.element === def.element);
+    return gi >= 0 ? `hsl(${GALAXY_DATA[gi].hue}, 85%, 65%)` : '#fff';
+  }
+
+  // Ship silhouette icon for the EQUIP screen -- same additive wireframe
+  // treatment as the run (strokeShipPath under 'lighter' composite), just
+  // scaled down to fit a small box instead of drawn at final run size.
+  // `dim` renders a locked ship as a faint grey outline instead of its
+  // element colour -- the colour language is something earned, not
+  // previewed on a ship the player hasn't unlocked yet.
+  function drawShipIcon(cx, cy, boxSize, shipKey, color, dim) {
+    const shape = SHIP_LOADOUT_SHAPES[shipKey] || SHIP_LOADOUT_SHAPES.warden;
+    const fitScale = (boxSize * 0.42) / shape.size;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(fitScale, fitScale);
+    ctx.globalCompositeOperation = 'lighter';
+    strokeShipPath(shape.points, dim ? 'rgba(255, 255, 255, 0.25)' : color, shape.stroke);
+    ctx.restore();
   }
 
   // --- Map corridor: ported 1:1 from the reference implementation. Perspective,
@@ -5048,24 +5179,31 @@
 
     // Always white-hot, never flashed or recoloured -- player damage reads
     // through the screen-edge vignette instead (see below), not the ship.
-    // SHIP_WARDEN is already at final on-screen size, so no scale/divide
-    // dance -- SHIP_STROKE_PX.warden is the literal stroke width.
-    strokeShipPath(SHIP_WARDEN, '#fff', SHIP_STROKE_PX.warden);
+    // Block 34 -- "the EQUIPPED ship renders white in the run. Always."
+    // Element colour is a menu-only language (see drawShipIcon); in the run
+    // itself every ship is drawn the same sacred white regardless of hull.
+    const equippedShipShape = SHIP_LOADOUT_SHAPES[equipped.ship] || SHIP_LOADOUT_SHAPES.warden;
+    strokeShipPath(equippedShipShape.points, '#fff', equippedShipShape.stroke);
 
     // Panel lines -- surface detail, not part of the outline. Three seams
     // running LENGTHWISE (nose to tail), not crossbars, so they read as
-    // hull plating rather than structural ribs.
-    ctx.strokeStyle = '#fff';
-    ctx.globalAlpha = 0.5;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(WARDEN_SIZE * 1.0, 0);
-    ctx.lineTo(WARDEN_SIZE * -0.42, 0);
-    ctx.moveTo(WARDEN_SIZE * 0.13, WARDEN_SIZE * 0.26);
-    ctx.lineTo(WARDEN_SIZE * -0.42, WARDEN_SIZE * 0.32);
-    ctx.moveTo(WARDEN_SIZE * 0.13, WARDEN_SIZE * -0.26);
-    ctx.lineTo(WARDEN_SIZE * -0.42, WARDEN_SIZE * -0.32);
-    ctx.stroke();
+    // hull plating rather than structural ribs. Hand-tuned to the Warden's
+    // own coordinates, so only drawn when the Warden is actually equipped --
+    // the other five hulls get the plain wireframe silhouette with no
+    // per-ship surface detail (unrequested scope beyond Block 34's ask).
+    if (equipped.ship === 'warden') {
+      ctx.strokeStyle = '#fff';
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(WARDEN_SIZE * 1.0, 0);
+      ctx.lineTo(WARDEN_SIZE * -0.42, 0);
+      ctx.moveTo(WARDEN_SIZE * 0.13, WARDEN_SIZE * 0.26);
+      ctx.lineTo(WARDEN_SIZE * -0.42, WARDEN_SIZE * 0.32);
+      ctx.moveTo(WARDEN_SIZE * 0.13, WARDEN_SIZE * -0.26);
+      ctx.lineTo(WARDEN_SIZE * -0.42, WARDEN_SIZE * -0.32);
+      ctx.stroke();
+    }
     ctx.globalAlpha = 1;
 
     ctx.restore();   // closes the player ship's own local save
@@ -5618,8 +5756,42 @@
     ctx.textAlign = 'left';
   }
 
-  // Block 27 -- EQUIP screen. Simple list UI per the spec (the silhouette
-  // select screen is Block 34, not this block): ships, then commanders,
+  // Block 34 -- ship rows only: "silhouette, name, buff, drawback. Nothing
+  // else." No right-aligned EQUIP/EQUIPPED/LOCKED text (that's the "nothing
+  // else" the spec rules out) -- equipped/locked state is instead carried
+  // by the same row-highlight border every other EQUIP row already used,
+  // plus the icon itself: full element colour once unlocked, a faint grey
+  // outline while locked. Commander rows are untouched (drawEquipRow above)
+  // -- commanders have no visual language in this block.
+  function drawShipEquipRow(rowX, drawY, rowW, rowH, def, locked, isEquipped) {
+    ctx.fillStyle = isEquipped ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.05)';
+    ctx.fillRect(rowX, drawY, rowW, rowH);
+    ctx.strokeStyle = isEquipped ? 'rgba(255, 255, 255, 0.6)' : 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rowX, drawY, rowW, rowH);
+
+    const iconBox = rowH - 8;
+    const iconCx = rowX + 8 + iconBox / 2;
+    const iconCy = drawY + rowH / 2;
+    drawShipIcon(iconCx, iconCy, iconBox, def.key, shipMenuColor(def), locked);
+
+    const textX = rowX + 16 + iconBox;
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillStyle = locked ? 'rgba(255, 255, 255, 0.35)' : '#fff';
+    ctx.fillText(def.name, textX, drawY + 20);
+
+    ctx.font = '11px sans-serif';
+    ctx.fillStyle = locked ? 'rgba(255, 255, 255, 0.25)' : 'rgba(180, 220, 255, 0.85)';
+    ctx.fillText(def.desc, textX, drawY + 36);
+    ctx.fillStyle = locked ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 150, 150, 0.85)';
+    ctx.fillText(def.drawback, textX, drawY + 50);
+
+    equipRowBounds.push({ x: rowX, y: drawY, w: rowW, h: rowH, kind: 'ship', key: def.key, locked });
+  }
+
+  // Block 27 -- EQUIP screen. Ships get real silhouettes as of Block 34;
+  // commanders stay the plain list (no visual language of their own),
   // vertically scrollable since 6+6 rows don't reliably fit a phone canvas.
   function drawEquip() {
     ctx.fillStyle = '#000';
@@ -5669,7 +5841,7 @@
 
     for (let i = 0; i < SHIPS.length; i++) {
       const def = SHIPS[i];
-      drawEquipRow(rowX, listTop + contentY - equipScroll, rowW, rowH, def, !ships[i], equipped.ship === def.key, 'ship');
+      drawShipEquipRow(rowX, listTop + contentY - equipScroll, rowW, rowH, def, !ships[i], equipped.ship === def.key);
       contentY += rowH + rowGap;
     }
 
