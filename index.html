@@ -382,7 +382,13 @@
     STAR_LAYER_2_SPACING: 170,        // denser/closer layer -- smaller spacing reads as nearer
     STAR_LAYER_1_ALPHA: 0.12,
     STAR_LAYER_2_ALPHA: 0.22,
-    STAR_DOT_RADIUS: 1.1
+    STAR_DOT_RADIUS: 1.1,
+    // Block 35 -- open-world teeth. Straight-line kiting shouldn't be free.
+    SPAWN_AHEAD_BIAS: 0.55,        // fraction of spawns weighted into the heading arc
+    SPAWN_AHEAD_ARC_DEG: 120,      // width of that arc, centred on the player's heading
+    LANCE_OPEN_SPEED_MULT: 1.4,
+    MOTE_LIFETIME: 12,             // seconds before an uncollected mote expires
+    MOTE_BLINK_DURATION: 3         // seconds of blinking before expiry
   };
 
   const TUNE_DEFAULTS = { ...TUNE };
@@ -1773,6 +1779,20 @@
     return spawnRadius() * TUNE.DESPAWN_RADIUS_MULT;
   }
 
+  // Block 35 -- weight new spawns into the arc the player is flying toward,
+  // so a straight line runs the player INTO the swarm instead of outrunning
+  // it forever. Stationary (no meaningful velocity) stays fully uniform --
+  // there's no "ahead" to bias toward if the player isn't going anywhere.
+  function spawnAheadAngle() {
+    const heading = Math.hypot(player.vx, player.vy);
+    if (heading > 0.5 && Math.random() < TUNE.SPAWN_AHEAD_BIAS) {
+      const centre = Math.atan2(player.vy, player.vx);
+      const halfArc = (TUNE.SPAWN_AHEAD_ARC_DEG * Math.PI / 180) / 2;
+      return centre + (Math.random() * 2 - 1) * halfArc;
+    }
+    return Math.random() * Math.PI * 2;
+  }
+
   const STATE = { MAP: 'map', RUN: 'run', DEAD: 'dead', VICTORY: 'victory', LEAP: 'leap', SHOP: 'shop', OPENING: 'opening', TITLE: 'title', SETTINGS: 'settings' };
   const LEAP_DURATION_MS = 1500;
   let leapFrom = 0;
@@ -1829,7 +1849,9 @@
 
   function spawnEnemy(n) {
     // Block 33 -- spawns in a ring around the PLAYER, not the screen edge.
-    const spawnAngle = Math.random() * Math.PI * 2;
+    // Block 35 -- weighted toward the player's heading (spawnAheadAngle),
+    // not fully uniform, so kiting in a straight line runs you into enemies.
+    const spawnAngle = spawnAheadAngle();
     const r = spawnRadius();
     const x = player.x + Math.cos(spawnAngle) * r;
     const y = player.y + Math.sin(spawnAngle) * r;
@@ -1841,7 +1863,9 @@
 
     if (type === 'lance') {
       const hp = Math.floor(TUNE.LANCE_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE) * rockMult);
-      const chargeSpeed = TUNE.LANCE_CHARGE_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE;
+      // Block 35 -- Lance = pursuit. +40% in the open world, since a Lance's
+      // whole job is running the player down when they try to just flee.
+      const chargeSpeed = (TUNE.LANCE_CHARGE_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE) * TUNE.LANCE_OPEN_SPEED_MULT;
       return applyElite({
         type, x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.LANCE_RADIUS,
         chargeSpeed, phase: 'aim', phaseTimer: 0, chargeAngle: 0
@@ -1868,7 +1892,9 @@
     const rockMult = currentElement() === 'Rock' ? TUNE.ELEMENT_ROCK_HP_MULT : 1;
     if (type === 'lance') {
       const hp = Math.floor(TUNE.LANCE_MAX_HP * (1 + n * TUNE.WAVE_HP_GROWTH_PER_WAVE) * rockMult);
-      const chargeSpeed = TUNE.LANCE_CHARGE_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE;
+      // Block 35 -- Lance = pursuit. +40% in the open world, since a Lance's
+      // whole job is running the player down when they try to just flee.
+      const chargeSpeed = (TUNE.LANCE_CHARGE_SPEED + n * TUNE.WAVE_SPEED_PER_WAVE) * TUNE.LANCE_OPEN_SPEED_MULT;
       return { type, x, y, vx: 0, vy: 0, angle: 0, hp, radius: TUNE.LANCE_RADIUS, chargeSpeed, phase: 'aim', phaseTimer: 0, chargeAngle: 0 };
     }
     if (type === 'anchor') {
@@ -2974,8 +3000,15 @@
     enemy.phaseTimer -= dt;
 
     if (enemy.phase === 'aim') {
-      const dx = player.x - enemy.x;
-      const dy = player.y - enemy.y;
+      // Block 35 -- lead the player's velocity, not their current position:
+      // time-to-close at chargeSpeed, projected forward along player.vx/vy.
+      // A stationary player (vx/vy near 0) collapses this back to aiming
+      // straight at them, same as before.
+      const dx0 = player.x - enemy.x;
+      const dy0 = player.y - enemy.y;
+      const leadTime = Math.hypot(dx0, dy0) / enemy.chargeSpeed;
+      const dx = dx0 + player.vx * leadTime;
+      const dy = dy0 + player.vy * leadTime;
       const targetAngle = Math.atan2(dy, dx);
       let diff = ((targetAngle - enemy.angle + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
       enemy.angle += diff * (enemy.aimTurn || TUNE.LANCE_AIM_TURN);
@@ -3278,7 +3311,7 @@
   // branch can grant it too without duplicating the boss-transition logic.
   function regularEnemyDeathRewards(enemy) {
     sfxKill();
-    motes.push({ x: enemy.x, y: enemy.y, speed: 0 });
+    motes.push({ x: enemy.x, y: enemy.y, speed: 0, born: currentTime });
     waveKilled++;
   }
 
@@ -3573,6 +3606,13 @@
 
     for (let i = motes.length - 1; i >= 0; i--) {
       const mote = motes[i];
+
+      // Block 35 -- mote fade. Run from every fight and you starve.
+      if (currentTime - mote.born >= TUNE.MOTE_LIFETIME * 1000) {
+        motes.splice(i, 1);
+        continue;
+      }
+
       const dx = player.x - mote.x;
       const dy = player.y - mote.y;
       const dist = Math.hypot(dx, dy);
@@ -3674,7 +3714,7 @@
         for (let i = 0; i < TUNE.KEKU_MOTES; i++) {
           const jx = (Math.random() * 2 - 1) * 12;
           const jy = (Math.random() * 2 - 1) * 12;
-          motes.push({ x: entity.x + jx, y: entity.y + jy, speed: 0 });
+          motes.push({ x: entity.x + jx, y: entity.y + jy, speed: 0, born: currentTime });
         }
         fragmentsKilled++;
       }
@@ -3925,7 +3965,7 @@
                 for (let i = 0; i < TUNE.ELITE_MOTES; i++) {
                   const jx = (Math.random() * 2 - 1) * 10;
                   const jy = (Math.random() * 2 - 1) * 10;
-                  motes.push({ x: closest.x + jx, y: closest.y + jy, speed: 0 });
+                  motes.push({ x: closest.x + jx, y: closest.y + jy, speed: 0, born: currentTime });
                 }
                 if (closest.affix === 'splitting') {
                   const n = TUNE.AFFIX_SPLITTING_COUNT;
@@ -3956,7 +3996,7 @@
                   shakeStrength = Math.max(shakeStrength, TUNE.SHAKE_KILL * 1.5);
                 }
               } else {
-                motes.push({ x: closest.x, y: closest.y, speed: 0 });
+                motes.push({ x: closest.x, y: closest.y, speed: 0, born: currentTime });
               }
               waveKilled++;
             }
@@ -4497,17 +4537,22 @@
     // depth-brightness curve as everything else means they're barely a glow
     // in galaxy 1 and properly hot by galaxy 10.
     for (const mote of motes) {
+      // Block 35 -- blink for the final MOTE_BLINK_DURATION seconds before
+      // it expires, so its disappearance is telegraphed, not sudden.
+      const remaining = TUNE.MOTE_LIFETIME - (currentTime - mote.born) / 1000;
+      const blink = remaining <= TUNE.MOTE_BLINK_DURATION ? (0.25 + 0.75 * Math.abs(Math.sin(currentTime / 90))) : 1;
       ctx.fillStyle = pal.lightAccent;
-      ctx.globalAlpha = 0.22;
+      ctx.globalAlpha = 0.22 * blink;
       ctx.beginPath();
       ctx.arc(mote.x, mote.y, 5, 0, Math.PI * 2);
       ctx.fill();
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = blink;
 
       ctx.beginPath();
       ctx.arc(mote.x, mote.y, 2, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.globalAlpha = 1;
 
     ctx.save();
     ctx.translate(player.x, player.y - TUNE.THUMB_OFFSET);
