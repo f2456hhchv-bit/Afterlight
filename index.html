@@ -4787,6 +4787,122 @@
     drawStarLayer(TUNE.STAR_LAYER_2_SPEED, TUNE.STAR_LAYER_2_SPACING, TUNE.STAR_LAYER_2_ALPHA, 97);
   }
 
+  // Block 36 -- BUGFIX. Endless is a RUN: it gets the identical run HUD to
+  // story mode (HP bar, XP bar, wave counter, enemies remaining, mote
+  // counter, pause button), not a stripped-down "depth only" screen. This
+  // used to be an `if (endlessMode) {...} else {...}` branch inside
+  // drawRun() that drew two genuinely different HUDs -- that's the gate
+  // that kept re-breaking. There is now exactly one HUD, drawn once, for
+  // both paths (drawRun() is itself already the single entry point for
+  // both story and endless runs). The only endlessMode-conditional content
+  // left is the wave label's format (no "/10" ceiling -- endless counts up
+  // forever) and the DEPTH indicator, which is genuinely endless-only
+  // information with no story equivalent, layered on top rather than
+  // replacing anything.
+  function drawRunHUD(pal) {
+    const barX = 20;
+    const barY = 20;
+    const barWidth = 200;
+    const barHeight = 16;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.fillRect(barX, barY, barWidth, barHeight);
+
+    ctx.fillStyle = damageColor();
+    ctx.fillRect(barX, barY, barWidth * (player.hp / player.maxHp), barHeight);
+
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.font = '13px sans-serif';
+    const waveLabel = endlessMode ? ('WAVE ' + difficultyWave()) : ('WAVE ' + wave + ' / ' + TUNE.WAVES_PER_GALAXY);
+    ctx.fillText(waveLabel, barX, barY + barHeight + 20);
+    if (wave < TUNE.WAVES_PER_GALAXY) {
+      const remaining = Math.max(0, waveBudget - waveKilled);
+      ctx.fillText('ENEMIES: ' + remaining, barX, barY + barHeight + 38);
+    }
+    ctx.fillText('LIGHT: ' + Math.round(runMotes).toLocaleString(), barX, barY + barHeight + 56);
+
+    const xpNeed = TUNE.XP_BASE + level * TUNE.XP_GROWTH;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fillRect(0, 0, canvas.width, TUNE.XP_BAR_HEIGHT);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.fillRect(0, 0, canvas.width * Math.min(1, xp / xpNeed), TUNE.XP_BAR_HEIGHT);
+
+    if (boss) {
+      const bossBarY = TUNE.XP_BAR_HEIGHT;
+      const bossBarHeight = 8;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.fillRect(0, bossBarY, canvas.width, bossBarHeight);
+      ctx.fillStyle = pal.bossAccent;
+      ctx.fillRect(0, bossBarY, canvas.width * (boss.hp / boss.maxHp), bossBarHeight);
+
+      // Block 26 -- each herald has its own fixed name ("shown on
+      // appearance" via this same bar, which starts showing the instant
+      // boss becomes truthy). The Fragment has no herald -- it keeps
+      // the player-editable generic NAMES.boss, its own established
+      // identity, not one of the ten.
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.font = '12px sans-serif';
+      const bossLabel = boss.herald !== undefined ? HERALDS[boss.herald].name : NAMES.boss.toUpperCase();
+      ctx.fillText(bossLabel, canvas.width / 2, bossBarY + bossBarHeight + 14);
+      ctx.textAlign = 'left';
+    }
+
+    // Block 25 -- Acid/Ice are invisible otherwise ("if the player cannot
+    // see why they are taking damage, the effect has failed"): a plain
+    // stack count, in the galaxy's own colour, is the whole readability fix.
+    const acidStacks = player.acidStackUntil.length;
+    const iceStacks = player.iceStackUntil.length;
+    if (acidStacks > 0 || iceStacks > 0) {
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 12px sans-serif';
+      let statusY = barY + barHeight + 74;
+      ctx.fillStyle = pal.tier2;
+      if (acidStacks > 0) {
+        ctx.fillText('CORRODED x' + acidStacks, 20, statusY);
+        statusY += 16;
+      }
+      if (iceStacks > 0) {
+        ctx.fillText('SLOWED x' + iceStacks, 20, statusY);
+      }
+      ctx.fillStyle = '#fff';
+    }
+
+    if (endlessMode) {
+      // Right-aligned in the gap between the HP bar and the DOM debug
+      // toggle (fixed 36px circle, top:8/right:8) -- centering it used to
+      // be safe when it was the ONLY HUD element, but it would now sit
+      // directly on top of the HP bar.
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'right';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText('DEPTH ' + endlessDepth, canvas.width - 54, barY + barHeight / 2 + 5);
+      ctx.textAlign = 'left';
+    }
+
+    if (!paused) {
+      // Bottom-left — the top of the screen is already the health bar, XP
+      // bar, wave/enemy text, and (when DEBUG is on) the boss bar and the
+      // DOM debug toggle at top-right. Bottom-left stays clear of all of it.
+      const pauseBtnW = 56;
+      const pauseBtnH = 26;
+      pauseButtonBounds = { x: 14, y: canvas.height - pauseBtnH - 14, w: pauseBtnW, h: pauseBtnH };
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.fillRect(pauseButtonBounds.x, pauseButtonBounds.y, pauseBtnW, pauseBtnH);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(pauseButtonBounds.x, pauseButtonBounds.y, pauseBtnW, pauseBtnH);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText('PAUSE', pauseButtonBounds.x + pauseBtnW / 2, pauseButtonBounds.y + pauseBtnH / 2 + 4);
+      ctx.textAlign = 'left';
+    } else {
+      pauseButtonBounds = null;
+    }
+  }
+
   function drawRun() {
     // Endless recombines the ten authored star types rather than ever
     // introducing new ones -- the hue index just wraps as depth grows, but
@@ -5233,104 +5349,7 @@
       ctx.fill();
     }
 
-    if (endlessMode) {
-      // The only UI in endless: a depth counter. No health bar, no XP bar,
-      // no wave/enemy text, no boss name/bar -- deliberately. You are not
-      // meant to manage this the way you manage a story run.
-      ctx.fillStyle = '#fff';
-      ctx.textAlign = 'center';
-      ctx.font = 'bold 15px sans-serif';
-      ctx.fillText('DEPTH ' + endlessDepth, canvas.width / 2, 30);
-      ctx.textAlign = 'left';
-    } else {
-      const barX = 20;
-      const barY = 20;
-      const barWidth = 200;
-      const barHeight = 16;
-
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-      ctx.fillRect(barX, barY, barWidth, barHeight);
-
-      ctx.fillStyle = damageColor();
-      ctx.fillRect(barX, barY, barWidth * (player.hp / player.maxHp), barHeight);
-
-      ctx.fillStyle = '#fff';
-      ctx.textAlign = 'left';
-      ctx.font = '13px sans-serif';
-      ctx.fillText('WAVE ' + wave + ' / ' + TUNE.WAVES_PER_GALAXY, barX, barY + barHeight + 20);
-      if (wave < TUNE.WAVES_PER_GALAXY) {
-        const remaining = Math.max(0, waveBudget - waveKilled);
-        ctx.fillText('ENEMIES: ' + remaining, barX, barY + barHeight + 38);
-      }
-
-      const xpNeed = TUNE.XP_BASE + level * TUNE.XP_GROWTH;
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-      ctx.fillRect(0, 0, canvas.width, TUNE.XP_BAR_HEIGHT);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-      ctx.fillRect(0, 0, canvas.width * Math.min(1, xp / xpNeed), TUNE.XP_BAR_HEIGHT);
-
-      if (boss) {
-        const bossBarY = TUNE.XP_BAR_HEIGHT;
-        const bossBarHeight = 8;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-        ctx.fillRect(0, bossBarY, canvas.width, bossBarHeight);
-        ctx.fillStyle = pal.bossAccent;
-        ctx.fillRect(0, bossBarY, canvas.width * (boss.hp / boss.maxHp), bossBarHeight);
-
-        // Block 26 -- each herald has its own fixed name ("shown on
-        // appearance" via this same bar, which starts showing the instant
-        // boss becomes truthy). The Fragment has no herald -- it keeps
-        // the player-editable generic NAMES.boss, its own established
-        // identity, not one of the ten.
-        ctx.fillStyle = '#fff';
-        ctx.textAlign = 'center';
-        ctx.font = '12px sans-serif';
-        const bossLabel = boss.herald !== undefined ? HERALDS[boss.herald].name : NAMES.boss.toUpperCase();
-        ctx.fillText(bossLabel, canvas.width / 2, bossBarY + bossBarHeight + 14);
-        ctx.textAlign = 'left';
-      }
-    }
-
-    // Block 25 -- Acid/Ice are invisible otherwise ("if the player cannot
-    // see why they are taking damage, the effect has failed"): a plain
-    // stack count, in the galaxy's own colour, is the whole readability fix.
-    const acidStacks = player.acidStackUntil.length;
-    const iceStacks = player.iceStackUntil.length;
-    if (acidStacks > 0 || iceStacks > 0) {
-      ctx.textAlign = 'left';
-      ctx.font = 'bold 12px sans-serif';
-      let statusY = endlessMode ? 50 : 20 + 16 + 56;
-      ctx.fillStyle = pal.tier2;
-      if (acidStacks > 0) {
-        ctx.fillText('CORRODED x' + acidStacks, 20, statusY);
-        statusY += 16;
-      }
-      if (iceStacks > 0) {
-        ctx.fillText('SLOWED x' + iceStacks, 20, statusY);
-      }
-      ctx.fillStyle = '#fff';
-    }
-
-    if (!paused) {
-      // Bottom-left — the top of the screen is already the health bar, XP
-      // bar, wave/enemy text, and (when DEBUG is on) the boss bar and the
-      // DOM debug toggle at top-right. Bottom-left stays clear of all of it.
-      const pauseBtnW = 56;
-      const pauseBtnH = 26;
-      pauseButtonBounds = { x: 14, y: canvas.height - pauseBtnH - 14, w: pauseBtnW, h: pauseBtnH };
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-      ctx.fillRect(pauseButtonBounds.x, pauseButtonBounds.y, pauseBtnW, pauseBtnH);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(pauseButtonBounds.x, pauseButtonBounds.y, pauseBtnW, pauseBtnH);
-      ctx.fillStyle = '#fff';
-      ctx.textAlign = 'center';
-      ctx.font = 'bold 11px sans-serif';
-      ctx.fillText('PAUSE', pauseButtonBounds.x + pauseBtnW / 2, pauseButtonBounds.y + pauseBtnH / 2 + 4);
-      ctx.textAlign = 'left';
-    } else {
-      pauseButtonBounds = null;
-    }
+    drawRunHUD(pal);
 
     if (paused && draftOptions.length === 0) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
