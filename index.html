@@ -388,7 +388,38 @@
     SPAWN_AHEAD_ARC_DEG: 120,      // width of that arc, centred on the player's heading
     LANCE_OPEN_SPEED_MULT: 1.4,
     MOTE_LIFETIME: 12,             // seconds before an uncollected mote expires
-    MOTE_BLINK_DURATION: 3         // seconds of blinking before expiry
+    MOTE_BLINK_DURATION: 3,        // seconds of blinking before expiry
+    // Block 27 -- ships and commanders. One TUNE key per buff/drawback, no
+    // exceptions -- every number here has a matching cost somewhere else
+    // in this same list.
+    SHIP_FIRE_BURN_DPS: 4,
+    SHIP_FIRE_BURN_DURATION: 3,          // seconds a burn lasts after a hit, refreshed by the next hit
+    SHIP_FIRE_POOL_INTERVAL: 1,          // seconds between fire pools dropped by a burning enemy
+    SHIP_ELECTRIC_HULL_PENALTY: 0.30,
+    SHIP_ELECTRIC_CHAIN_TARGETS: 2,
+    SHIP_ELECTRIC_CHAIN_RANGE: 140,
+    SHIP_ELECTRIC_CHAIN_DAMAGE: 5,
+    SHIP_ROCK_HULL_BONUS: 0.80,
+    SHIP_ROCK_SPEED_PENALTY: 0.25,
+    SHIP_ROCK_KNOCKBACK_MULT: 2.2,       // on top of the base TUNE.KNOCKBACK every ship already has
+    SHIP_GRAVITY_PULL_RADIUS: 90,
+    SHIP_GRAVITY_PULL_STRENGTH: 14,      // px, instantaneous, falls off linearly to 0 at the radius
+    SHIP_GRAVITY_SELF_PULL: 1.5,         // px, instantaneous -- the drawback, much weaker than the enemy pull
+    SHIP_ICE_FIRE_RATE_PENALTY: 0.20,
+    SHIP_ICE_SLOW_DURATION: 1.5,         // seconds a slowed enemy stays slowed after a hit, refreshed by the next hit
+    SHIP_ICE_SLOW_MULT: 0.5,             // velocity multiplier while slowed
+    CMD_PLASMA_DAMAGE_BONUS: 0.25,
+    CMD_PLASMA_HULL_PENALTY: 0.15,
+    CMD_ACID_ENEMY_DAMAGE_BONUS: 0.20,
+    CMD_ACID_FIRE_RATE_PENALTY: 0.10,
+    CMD_CRYSTAL_PIERCE_EVERY: 5,
+    CMD_CRYSTAL_DAMAGE_PENALTY: 0.15,
+    CMD_RADIATION_AURA_RADIUS: 80,
+    CMD_RADIATION_AURA_DPS: 6,
+    CMD_RADIATION_SELF_DPS: 1.5,
+    CMD_WIND_SPEED_BONUS: 0.25,
+    CMD_WIND_PICKUP_BONUS: 0.25,
+    CMD_WIND_HULL_PENALTY: 0.20
   };
 
   const TUNE_DEFAULTS = { ...TUNE };
@@ -1031,6 +1062,31 @@
     { name: 'THE SCATTERING' }
   ];
 
+  // Block 27 -- ships and commanders. CANON: the player has no element.
+  // Their ship and commander do, and neither is immune to it. Every option
+  // has a drawback -- a loadout without a cost isn't a choice. Ship
+  // elements (Fire/Electric/Rock/Gravity/Ice) and commander elements
+  // (Plasma/Acid/Crystal/Radiation/Wind) are disjoint -- together they
+  // cover all ten GALAXY_DATA elements exactly once, so clearing any
+  // galaxy unlocks exactly one loadout piece, never zero, never two.
+  const SHIPS = [
+    { key: 'warden', name: 'WARDEN', element: null, desc: 'Balanced.', drawback: 'None. The baseline.' },
+    { key: 'fire', name: 'FIRE', element: 'Fire', desc: 'Bullets ignite (DoT).', drawback: 'Your own fire pools hurt you.' },
+    { key: 'electric', name: 'ELECTRIC', element: 'Electric', desc: 'Bullets chain to 2 nearby enemies.', drawback: '-30% hull.' },
+    { key: 'rock', name: 'ROCK', element: 'Rock', desc: '+80% hull, bullets knock back harder.', drawback: '-25% move speed.' },
+    { key: 'gravity', name: 'GRAVITY', element: 'Gravity', desc: 'Bullets pull enemies to impact point.', drawback: 'Slight pull on you too.' },
+    { key: 'ice', name: 'ICE', element: 'Ice', desc: 'Bullets slow enemies.', drawback: '-20% fire rate.' }
+  ];
+
+  const COMMANDERS = [
+    { key: 'none', name: 'NONE', element: null, desc: 'No commander.', drawback: 'None.' },
+    { key: 'plasma', name: 'PLASMA', element: 'Plasma', desc: '+25% damage.', drawback: '-15% hull.' },
+    { key: 'acid', name: 'ACID', element: 'Acid', desc: 'Enemies take +20% from all sources.', drawback: '-10% fire rate.' },
+    { key: 'crystal', name: 'CRYSTAL', element: 'Crystal', desc: 'Every 5th shot pierces all.', drawback: '-15% damage on the other four.' },
+    { key: 'radiation', name: 'RADIATION', element: 'Radiation', desc: 'Small damage aura around you.', drawback: 'Chip damage to you too.' },
+    { key: 'wind', name: 'WIND', element: 'Wind', desc: '+25% move speed and pickup radius.', drawback: '-20% hull.' }
+  ];
+
   // Neon wireframe art direction: the void is always pure #000, never a
   // galaxy-tinted gradient -- so this no longer returns a `background`
   // field at all. Light must punch out of absolute black; nothing sits
@@ -1455,6 +1511,86 @@
     return result;
   }
 
+  // Block 27 -- ships/commanders unlock state. Both are plain boolean
+  // arrays index-matched to SHIPS/COMMANDERS, same convention as
+  // galaxyCardsSeen -- index 0 (Warden / None) is always true regardless
+  // of what's stored, since it's the always-available default, not
+  // something earned.
+  function defaultShips() {
+    const arr = new Array(SHIPS.length).fill(false);
+    arr[0] = true;
+    return arr;
+  }
+
+  function readShips(obj) {
+    const ds = defaultShips();
+    if (!Array.isArray(obj) || obj.length !== ds.length) return ds;
+    const out = ds.map((_, i) => obj[i] === true);
+    out[0] = true;
+    return out;
+  }
+
+  function defaultCommanders() {
+    const arr = new Array(COMMANDERS.length).fill(false);
+    arr[0] = true;
+    return arr;
+  }
+
+  function readCommanders(obj) {
+    const ds = defaultCommanders();
+    if (!Array.isArray(obj) || obj.length !== ds.length) return ds;
+    const out = ds.map((_, i) => obj[i] === true);
+    out[0] = true;
+    return out;
+  }
+
+  // Migrating a save from before this system existed: a player who already
+  // cleared a galaxy has already earned what it unlocks -- no re-clearing
+  // required. Derives one-way unlocks from whatever galaxies[] the
+  // migration already produced, never used again after the save is
+  // actually on v10 (from then on ships/commanders is its own persisted,
+  // one-way state -- a later galaxy decay must NOT revoke it).
+  function shipsUnlockedFromGalaxies(g) {
+    const ships = defaultShips();
+    if (!Array.isArray(g)) return ships;
+    for (let i = 0; i < GALAXY_DATA.length; i++) {
+      if (g[i] !== 1) continue;
+      const idx = SHIPS.findIndex((s) => s.element === GALAXY_DATA[i].element);
+      if (idx >= 0) ships[idx] = true;
+    }
+    return ships;
+  }
+
+  function commandersUnlockedFromGalaxies(g) {
+    const commanders = defaultCommanders();
+    if (!Array.isArray(g)) return commanders;
+    for (let i = 0; i < GALAXY_DATA.length; i++) {
+      if (g[i] !== 1) continue;
+      const idx = COMMANDERS.findIndex((c) => c.element === GALAXY_DATA[i].element);
+      if (idx >= 0) commanders[idx] = true;
+    }
+    return commanders;
+  }
+
+  function defaultEquipped() {
+    return { ship: 'warden', commander: 'none' };
+  }
+
+  // Defensive: equipped must reference something actually unlocked, or it
+  // falls back to the default -- corruption, a hand-edited import, or any
+  // future bug in the unlock arrays can never leave the player stuck with
+  // an ability they haven't earned (or crash trying to look one up).
+  function readEquipped(obj, shipsArr, commandersArr) {
+    const ds = defaultEquipped();
+    if (!obj || typeof obj !== 'object') return ds;
+    const shipIdx = SHIPS.findIndex((s) => s.key === obj.ship);
+    const cmdIdx = COMMANDERS.findIndex((c) => c.key === obj.commander);
+    return {
+      ship: shipIdx >= 0 && shipsArr[shipIdx] ? obj.ship : ds.ship,
+      commander: cmdIdx >= 0 && commandersArr[cmdIdx] ? obj.commander : ds.commander
+    };
+  }
+
   // Keku's lines, in trigger order. Indices 0 and 1 are NOT addressed to the
   // player -- he doesn't know they exist yet, so no attribution is shown for
   // them (drawDead/drawVictory render these unlabelled, like an overheard
@@ -1561,9 +1697,11 @@
       const raw = localStorage.getItem(SAVE_KEY);
       if (raw) {
         const obj = JSON.parse(raw);
-        if (obj && obj.v === 9 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+        if (obj && obj.v === 10 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+          const ships = readShips(obj.ships);
+          const commanders = readCommanders(obj.commanders);
           return {
-            v: 9,
+            v: 10,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
@@ -1574,12 +1712,34 @@
             bestDepth: typeof obj.bestDepth === 'number' ? obj.bestDepth : 0,
             fragmentsKilled: typeof obj.fragmentsKilled === 'number' ? obj.fragmentsKilled : 0,
             openingSeen: obj.openingSeen === true,
-            galaxyCardsSeen: readGalaxyCardsSeen(obj.galaxyCardsSeen)
+            galaxyCardsSeen: readGalaxyCardsSeen(obj.galaxyCardsSeen),
+            ships: ships,
+            commanders: commanders,
+            equipped: readEquipped(obj.equipped, ships, commanders)
+          };
+        }
+        if (obj && obj.v === 9 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+          return {
+            v: 10,
+            motes: obj.motes,
+            galaxies: obj.galaxies,
+            lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
+            deepestHeld: typeof obj.deepestHeld === 'number' ? obj.deepestHeld : obj.galaxies.filter((g) => g === 1).length,
+            names: readNames(obj.names),
+            shop: readShop(obj.shop),
+            kekuSeen: readKekuSeen(obj.kekuSeen),
+            bestDepth: typeof obj.bestDepth === 'number' ? obj.bestDepth : 0,
+            fragmentsKilled: typeof obj.fragmentsKilled === 'number' ? obj.fragmentsKilled : 0,
+            openingSeen: obj.openingSeen === true,
+            galaxyCardsSeen: readGalaxyCardsSeen(obj.galaxyCardsSeen),
+            ships: shipsUnlockedFromGalaxies(obj.galaxies),
+            commanders: commandersUnlockedFromGalaxies(obj.galaxies),
+            equipped: defaultEquipped()
           };
         }
         if (obj && obj.v === 8 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 9,
+            v: 10,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
@@ -1590,12 +1750,15 @@
             bestDepth: typeof obj.bestDepth === 'number' ? obj.bestDepth : 0,
             fragmentsKilled: typeof obj.fragmentsKilled === 'number' ? obj.fragmentsKilled : 0,
             openingSeen: true,   // upgrading from before the opening existed -- don't replay it on an existing save
-            galaxyCardsSeen: defaultGalaxyCardsSeen()
+            galaxyCardsSeen: defaultGalaxyCardsSeen(),
+            ships: shipsUnlockedFromGalaxies(obj.galaxies),
+            commanders: commandersUnlockedFromGalaxies(obj.galaxies),
+            equipped: defaultEquipped()
           };
         }
         if (obj && obj.v === 7 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 9,
+            v: 10,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
@@ -1606,12 +1769,15 @@
             bestDepth: typeof obj.bestDepth === 'number' ? obj.bestDepth : 0,
             fragmentsKilled: 0,
             openingSeen: true,
-            galaxyCardsSeen: defaultGalaxyCardsSeen()
+            galaxyCardsSeen: defaultGalaxyCardsSeen(),
+            ships: shipsUnlockedFromGalaxies(obj.galaxies),
+            commanders: commandersUnlockedFromGalaxies(obj.galaxies),
+            equipped: defaultEquipped()
           };
         }
         if (obj && obj.v === 6 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 9,
+            v: 10,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
@@ -1622,12 +1788,15 @@
             bestDepth: 0,
             fragmentsKilled: 0,
             openingSeen: true,
-            galaxyCardsSeen: defaultGalaxyCardsSeen()
+            galaxyCardsSeen: defaultGalaxyCardsSeen(),
+            ships: shipsUnlockedFromGalaxies(obj.galaxies),
+            commanders: commandersUnlockedFromGalaxies(obj.galaxies),
+            equipped: defaultEquipped()
           };
         }
         if (obj && obj.v === 5 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 9,
+            v: 10,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
@@ -1638,12 +1807,15 @@
             bestDepth: 0,
             fragmentsKilled: 0,
             openingSeen: true,
-            galaxyCardsSeen: defaultGalaxyCardsSeen()
+            galaxyCardsSeen: defaultGalaxyCardsSeen(),
+            ships: shipsUnlockedFromGalaxies(obj.galaxies),
+            commanders: commandersUnlockedFromGalaxies(obj.galaxies),
+            equipped: defaultEquipped()
           };
         }
         if (obj && obj.v === 4 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 9,
+            v: 10,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
@@ -1654,12 +1826,15 @@
             bestDepth: 0,
             fragmentsKilled: 0,
             openingSeen: true,
-            galaxyCardsSeen: defaultGalaxyCardsSeen()
+            galaxyCardsSeen: defaultGalaxyCardsSeen(),
+            ships: shipsUnlockedFromGalaxies(obj.galaxies),
+            commanders: commandersUnlockedFromGalaxies(obj.galaxies),
+            equipped: defaultEquipped()
           };
         }
         if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
           return {
-            v: 9,
+            v: 10,
             motes: obj.motes,
             galaxies: obj.galaxies,
             lastPlayed: typeof obj.lastPlayed === 'number' ? obj.lastPlayed : Date.now(),
@@ -1670,24 +1845,27 @@
             bestDepth: 0,
             fragmentsKilled: 0,
             openingSeen: true,
-            galaxyCardsSeen: defaultGalaxyCardsSeen()
+            galaxyCardsSeen: defaultGalaxyCardsSeen(),
+            ships: shipsUnlockedFromGalaxies(obj.galaxies),
+            commanders: commandersUnlockedFromGalaxies(obj.galaxies),
+            equipped: defaultEquipped()
           };
         }
         if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
-          return { v: 9, motes: obj.motes, galaxies: obj.galaxies, lastPlayed: Date.now(), deepestHeld: obj.galaxies.filter((g) => g === 1).length, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0, fragmentsKilled: 0, openingSeen: true, galaxyCardsSeen: defaultGalaxyCardsSeen() };
+          return { v: 10, motes: obj.motes, galaxies: obj.galaxies, lastPlayed: Date.now(), deepestHeld: obj.galaxies.filter((g) => g === 1).length, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0, fragmentsKilled: 0, openingSeen: true, galaxyCardsSeen: defaultGalaxyCardsSeen(), ships: shipsUnlockedFromGalaxies(obj.galaxies), commanders: commandersUnlockedFromGalaxies(obj.galaxies), equipped: defaultEquipped() };
         }
         if (obj && obj.v === 1 && typeof obj.motes === 'number') {
-          return { v: 9, motes: obj.motes, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0, fragmentsKilled: 0, openingSeen: true, galaxyCardsSeen: defaultGalaxyCardsSeen() };
+          return { v: 10, motes: obj.motes, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0, fragmentsKilled: 0, openingSeen: true, galaxyCardsSeen: defaultGalaxyCardsSeen(), ships: defaultShips(), commanders: defaultCommanders(), equipped: defaultEquipped() };
         }
       }
     } catch (e) {}
-    return { v: 9, motes: 0, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0, fragmentsKilled: 0, openingSeen: false, galaxyCardsSeen: defaultGalaxyCardsSeen() };
+    return { v: 10, motes: 0, galaxies: new Array(10).fill(0), lastPlayed: Date.now(), deepestHeld: 0, names: defaultNames(), shop: defaultShop(), kekuSeen: defaultKekuSeen(), bestDepth: 0, fragmentsKilled: 0, openingSeen: false, galaxyCardsSeen: defaultGalaxyCardsSeen(), ships: defaultShips(), commanders: defaultCommanders(), equipped: defaultEquipped() };
   }
 
   function saveBank() {
     lastPlayed = Date.now();
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 9, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop, kekuSeen: kekuSeen, bestDepth: bestDepth, fragmentsKilled: fragmentsKilled, openingSeen: openingSeen, galaxyCardsSeen: galaxyCardsSeen }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 10, motes: bankedMotes, galaxies: galaxies, lastPlayed: lastPlayed, deepestHeld: deepestHeld, names: NAMES, shop: shop, kekuSeen: kekuSeen, bestDepth: bestDepth, fragmentsKilled: fragmentsKilled, openingSeen: openingSeen, galaxyCardsSeen: galaxyCardsSeen, ships: ships, commanders: commanders, equipped: equipped }));
     } catch (e) {}
   }
 
@@ -1793,7 +1971,7 @@
     return Math.random() * Math.PI * 2;
   }
 
-  const STATE = { MAP: 'map', RUN: 'run', DEAD: 'dead', VICTORY: 'victory', LEAP: 'leap', SHOP: 'shop', OPENING: 'opening', TITLE: 'title', SETTINGS: 'settings' };
+  const STATE = { MAP: 'map', RUN: 'run', DEAD: 'dead', VICTORY: 'victory', LEAP: 'leap', SHOP: 'shop', EQUIP: 'equip', OPENING: 'opening', TITLE: 'title', SETTINGS: 'settings' };
   const LEAP_DURATION_MS = 1500;
   let leapFrom = 0;
   let leapTo = 0;
@@ -2098,6 +2276,7 @@
 
   const bullets = [];
   let fireTimer = 0;
+  let crystalShotCounter = 0;
   let currentTarget = null;
 
   const particles = [];
@@ -2126,6 +2305,9 @@
   fragmentsKilled = initialSave.fragmentsKilled;
   let openingSeen = initialSave.openingSeen;
   let galaxyCardsSeen = initialSave.galaxyCardsSeen;
+  let ships = initialSave.ships;
+  let commanders = initialSave.commanders;
+  let equipped = initialSave.equipped;
   let decayedGalaxyIndex = -1;
   let deathCause = null;
   let deathKekuLine = null;
@@ -2176,8 +2358,20 @@
   let shopBackBounds = null;
   let shopCloseBounds = null;
   let endlessButtonBounds = null;
+  let equipButtonBounds = null;
   let saveMessage = '';
   let saveMessageUntil = 0;
+
+  // Block 27 -- EQUIP screen: a simple vertical list (ships, then
+  // commanders), no momentum, direct 1:1 drag scroll. equipMaxScroll is
+  // recomputed every drawEquip() call from actual content height.
+  let equipScroll = 0;
+  let equipMaxScroll = 0;
+  let equipDragging = false;
+  let equipDragLastY = 0;
+  let equipDragMoved = 0;
+  let equipRowBounds = [];
+  let equipBackBounds = null;
 
   const MAP_TAP_THRESHOLD = 8;   // px of movement below which a touch counts as a tap, not a scroll
 
@@ -2236,7 +2430,7 @@
       case 's': case 'S': case 'ArrowDown': keys.down = true; break;
       case 'a': case 'A': case 'ArrowLeft': keys.left = true; break;
       case 'd': case 'D': case 'ArrowRight': keys.right = true; break;
-      case 'Escape': if (state === STATE.SHOP) openMap(); break;
+      case 'Escape': if (state === STATE.SHOP || state === STATE.EQUIP) openMap(); break;
     }
   });
   window.addEventListener('keyup', (e) => {
@@ -2265,7 +2459,7 @@
     player.vx = 0;
     player.vy = 0;
     player.angle = -Math.PI / 2;
-    const baseMaxHp = TUNE.PLAYER_MAX_HP + shop.hull * TUNE.SHOP_HULL_BONUS;
+    const baseMaxHp = (TUNE.PLAYER_MAX_HP + shop.hull * TUNE.SHOP_HULL_BONUS) * shipHullMult() * commanderHullMult();
     player.maxHp = baseMaxHp;
     player.hp = baseMaxHp;
     player.flashUntil = 0;
@@ -2282,6 +2476,7 @@
     shards.length = 0;
     bullets.length = 0;
     fireTimer = 0;
+    crystalShotCounter = 0;
     currentTarget = null;
     particles.length = 0;
     shakeStrength = 0;
@@ -2332,6 +2527,11 @@
     selectedGalaxy = 0;
   }
 
+  function openEquip() {
+    state = STATE.EQUIP;
+    equipScroll = 0;
+  }
+
   // Shared by the map's DESCEND button and the opening screen's "TAKE THE
   // FIRST" (which forces index 0) -- world state is already clean from the
   // most recent restart() in both cases, same invariant DESCEND always
@@ -2365,6 +2565,12 @@
         x >= shopButtonBounds.x && x <= shopButtonBounds.x + shopButtonBounds.w &&
         y >= shopButtonBounds.y && y <= shopButtonBounds.y + shopButtonBounds.h) {
       state = STATE.SHOP;
+      return;
+    }
+    if (equipButtonBounds &&
+        x >= equipButtonBounds.x && x <= equipButtonBounds.x + equipButtonBounds.w &&
+        y >= equipButtonBounds.y && y <= equipButtonBounds.y + equipButtonBounds.h) {
+      openEquip();
       return;
     }
     if (endlessButtonBounds &&
@@ -2440,6 +2646,27 @@
     for (const btn of shopButtons) {
       if (btn.buyable && x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
         buyShopUpgrade(btn.key);
+        return;
+      }
+    }
+  }
+
+  // Block 27 -- EQUIP screen tap: BACK, or tap an unlocked row to equip it.
+  // Locked rows are drawn but not tappable, same convention as the map's
+  // locked galaxies.
+  function handleEquipTap(x, y) {
+    if (equipBackBounds &&
+        x >= equipBackBounds.x && x <= equipBackBounds.x + equipBackBounds.w &&
+        y >= equipBackBounds.y && y <= equipBackBounds.y + equipBackBounds.h) {
+      openMap();
+      return;
+    }
+    for (const row of equipRowBounds) {
+      if (row.locked) continue;
+      if (x >= row.x && x <= row.x + row.w && y >= row.y && y <= row.y + row.h) {
+        if (row.kind === 'ship') equipped.ship = row.key;
+        else equipped.commander = row.key;
+        saveBank();
         return;
       }
     }
@@ -2575,6 +2802,12 @@
       handleShopTap(x, y);
       return;
     }
+    if (state === STATE.EQUIP) {
+      equipDragging = true;
+      equipDragLastY = y;
+      equipDragMoved = 0;
+      return;
+    }
     if (state === STATE.DEAD || state === STATE.VICTORY) {
       restart();
       openMap();
@@ -2619,6 +2852,14 @@
       mapScrollVelocity = -dy * TUNE.CORRIDOR_SCROLL_SPEED;
       return;
     }
+    if (state === STATE.EQUIP) {
+      if (!equipDragging) return;
+      const dy = y - equipDragLastY;
+      equipDragLastY = y;
+      equipDragMoved += Math.abs(dy);
+      equipScroll = Math.max(0, Math.min(equipMaxScroll, equipScroll - dy));
+      return;
+    }
     if (!dragging) return;
     fingerX = x;
     fingerY = y;
@@ -2640,10 +2881,19 @@
       }
       return;
     }
+    if (state === STATE.EQUIP) {
+      if (!equipDragging) return;
+      equipDragging = false;
+      if (equipDragMoved < MAP_TAP_THRESHOLD) {
+        handleEquipTap(x, y);
+      }
+      return;
+    }
     dragging = false;
   }
   function pointerCancel() {
     mapDragging = false;
+    equipDragging = false;
     dragging = false;
   }
 
@@ -2741,6 +2991,52 @@
     if (player.iceStackUntil.length > TUNE.ELEMENT_ICE_MAX_STACKS) player.iceStackUntil.shift();
   }
 
+  // Block 27 -- ship/commander stat multipliers. Every option has a cost, so
+  // each of these folds BOTH a bonus and a drawback where the spec gives one;
+  // read at point-of-use, same convention as every other stat in the file.
+  function shipHullMult() {
+    let m = 1;
+    if (equipped.ship === 'rock') m *= 1 + TUNE.SHIP_ROCK_HULL_BONUS;
+    if (equipped.ship === 'electric') m *= 1 - TUNE.SHIP_ELECTRIC_HULL_PENALTY;
+    return m;
+  }
+  function commanderHullMult() {
+    let m = 1;
+    if (equipped.commander === 'plasma') m *= 1 - TUNE.CMD_PLASMA_HULL_PENALTY;
+    if (equipped.commander === 'wind') m *= 1 - TUNE.CMD_WIND_HULL_PENALTY;
+    return m;
+  }
+  function shipSpeedMult() {
+    return equipped.ship === 'rock' ? 1 - TUNE.SHIP_ROCK_SPEED_PENALTY : 1;
+  }
+  function commanderSpeedMult() {
+    return equipped.commander === 'wind' ? 1 + TUNE.CMD_WIND_SPEED_BONUS : 1;
+  }
+  // Multiplies the fire DELAY (higher = slower), same units as FIRE_RATE.
+  function shipFireRateMult() {
+    return equipped.ship === 'ice' ? 1 + TUNE.SHIP_ICE_FIRE_RATE_PENALTY : 1;
+  }
+  function commanderFireRateMult() {
+    return equipped.commander === 'acid' ? 1 + TUNE.CMD_ACID_FIRE_RATE_PENALTY : 1;
+  }
+  // isPierceAllShot: this bullet is the Crystal every-5th-shot pierce volley
+  // -- Crystal's own damage penalty only applies to the OTHER four.
+  function commanderDamageMult(isPierceAllShot) {
+    let m = 1;
+    if (equipped.commander === 'plasma') m *= 1 + TUNE.CMD_PLASMA_DAMAGE_BONUS;
+    if (equipped.commander === 'crystal' && !isPierceAllShot) m *= 1 - TUNE.CMD_CRYSTAL_DAMAGE_PENALTY;
+    return m;
+  }
+  function enemyDamageTakenMult() {
+    return equipped.commander === 'acid' ? 1 + TUNE.CMD_ACID_ENEMY_DAMAGE_BONUS : 1;
+  }
+  function commanderPickupMult() {
+    return equipped.commander === 'wind' ? 1 + TUNE.CMD_WIND_PICKUP_BONUS : 1;
+  }
+  function shipIceSlowActive(entity) {
+    return equipped.ship === 'ice' && currentTime < (entity.shipIceSlowUntil || 0);
+  }
+
   // Nebula: one shared drifting current, slowly rotating, felt equally by
   // the player and every enemy -- the point isn't to shove any one of them,
   // it's that nobody's movement is fully their own in this galaxy.
@@ -2783,7 +3079,7 @@
   }
 
   function update(dt) {
-    const effectiveSpeed = TUNE.SPEED * Math.pow(TUNE.SHOP_VELOCITY_MULT, shop.velocity) * iceSpeedMult();
+    const effectiveSpeed = TUNE.SPEED * Math.pow(TUNE.SHOP_VELOCITY_MULT, shop.velocity) * iceSpeedMult() * shipSpeedMult() * commanderSpeedMult();
     let targetX = 0;
     let targetY = 0;
 
@@ -2974,16 +3270,20 @@
       desiredY /= desiredLen;
     }
 
-    const targetX = desiredX * enemy.speed;
-    const targetY = desiredY * enemy.speed;
+    // Ice ship: "bullets slow enemies" -- a hit-applied speed cap, checked
+    // fresh every frame against the enemy's own expiry timestamp.
+    const effSpeed = enemy.speed * (shipIceSlowActive(enemy) ? TUNE.SHIP_ICE_SLOW_MULT : 1);
+
+    const targetX = desiredX * effSpeed;
+    const targetY = desiredY * effSpeed;
 
     enemy.vx += (targetX - enemy.vx) * enemy.turn;
     enemy.vy += (targetY - enemy.vy) * enemy.turn;
 
     const speed = Math.hypot(enemy.vx, enemy.vy);
-    if (speed > enemy.speed) {
-      enemy.vx = (enemy.vx / speed) * enemy.speed;
-      enemy.vy = (enemy.vy / speed) * enemy.speed;
+    if (speed > effSpeed) {
+      enemy.vx = (enemy.vx / speed) * effSpeed;
+      enemy.vy = (enemy.vy / speed) * effSpeed;
     }
 
     enemy.x += enemy.vx * dt;
@@ -3020,15 +3320,16 @@
         enemy.chargeAngle = enemy.angle;   // locked — nothing below reads player position again
       }
     } else if (enemy.phase === 'charge') {
+      const effChargeSpeed = enemy.chargeSpeed * (shipIceSlowActive(enemy) ? TUNE.SHIP_ICE_SLOW_MULT : 1);
       const speed = Math.hypot(enemy.vx, enemy.vy);
-      if (speed < enemy.chargeSpeed) {
+      if (speed < effChargeSpeed) {
         enemy.vx += Math.cos(enemy.chargeAngle) * TUNE.LANCE_CHARGE_ACCEL * dt;
         enemy.vy += Math.sin(enemy.chargeAngle) * TUNE.LANCE_CHARGE_ACCEL * dt;
       }
       const newSpeed = Math.hypot(enemy.vx, enemy.vy);
-      if (newSpeed > enemy.chargeSpeed) {
-        enemy.vx = (enemy.vx / newSpeed) * enemy.chargeSpeed;
-        enemy.vy = (enemy.vy / newSpeed) * enemy.chargeSpeed;
+      if (newSpeed > effChargeSpeed) {
+        enemy.vx = (enemy.vx / newSpeed) * effChargeSpeed;
+        enemy.vy = (enemy.vy / newSpeed) * effChargeSpeed;
       }
       if (enemy.phaseTimer <= 0) {
         enemy.phase = 'pause';
@@ -3050,6 +3351,13 @@
     const grid = buildGrid();
     const el = currentElement();
     const w = el === 'Wind' ? windVector() : null;
+
+    // Radiation commander: chip damage to the player themselves, once per
+    // frame regardless of enemy count -- "not immune to it."
+    if (equipped.commander === 'radiation' && state === STATE.RUN && !playerInvulnerable()) {
+      player.hp -= TUNE.CMD_RADIATION_SELF_DPS * dt;
+      if (player.hp <= 0 && state === STATE.RUN) killPlayer('enemy');
+    }
 
     for (const enemy of enemies) {
       if (enemy.type === 'lance') {
@@ -3082,6 +3390,42 @@
           player.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
           sfxPlayerHit();
           if (player.hp <= 0 && state === STATE.RUN) killPlayer('enemy');
+        }
+      }
+
+      // Fire ship: burn ticks while ignited (set on hit, in updateBullets),
+      // and periodically drops a fire pool at the burning enemy's feet --
+      // the shared firePools damage check has no faction filter, so the
+      // player can walk into their own. Simplified death path (matches the
+      // Electric chain-kill precedent): no elite drop table, one mote.
+      if (equipped.ship === 'fire' && enemy.burnUntil > currentTime) {
+        enemy.hp -= TUNE.SHIP_FIRE_BURN_DPS * dt * enemyDamageTakenMult();
+        enemy.firePoolTimer = (enemy.firePoolTimer || 0) - dt;
+        if (enemy.firePoolTimer <= 0) {
+          enemy.firePoolTimer = TUNE.SHIP_FIRE_POOL_INTERVAL;
+          firePools.push({ x: enemy.x, y: enemy.y, until: currentTime + TUNE.ELEMENT_FIRE_POOL_DURATION * 1000 });
+        }
+        if (enemy.hp <= 0 && !enemy.dead) {
+          enemy.dead = true;
+          spawnDeathBurst(enemy.x, enemy.y);
+          applyElementalDeathEffect(enemy);
+          regularEnemyDeathRewards(enemy);
+          continue;
+        }
+      }
+
+      // Radiation commander: a small damage aura around the player.
+      if (equipped.commander === 'radiation' && state === STATE.RUN) {
+        const raDist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+        if (raDist < TUNE.CMD_RADIATION_AURA_RADIUS + enemy.radius) {
+          enemy.hp -= TUNE.CMD_RADIATION_AURA_DPS * dt * enemyDamageTakenMult();
+          if (enemy.hp <= 0 && !enemy.dead) {
+            enemy.dead = true;
+            spawnDeathBurst(enemy.x, enemy.y);
+            applyElementalDeathEffect(enemy);
+            regularEnemyDeathRewards(enemy);
+            continue;
+          }
         }
       }
 
@@ -3160,9 +3504,11 @@
     const dx = player.x - boss.x;
     const dy = player.y - boss.y;
     const dist = Math.hypot(dx, dy);
+    // Ice ship: the on-hit slow reaches the boss too.
+    const effBossSpeed = boss.speed * (shipIceSlowActive(boss) ? TUNE.SHIP_ICE_SLOW_MULT : 1);
     if (dist > 0.001) {
-      boss.vx = (dx / dist) * boss.speed;
-      boss.vy = (dy / dist) * boss.speed;
+      boss.vx = (dx / dist) * effBossSpeed;
+      boss.vy = (dy / dist) * effBossSpeed;
       boss.angle = Math.atan2(dy, dx);
     }
 
@@ -3475,7 +3821,7 @@
     if (!text) return;
     try {
       const obj = JSON.parse(text);
-      if (obj && obj.v === 9 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+      if (obj && obj.v === 10 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
         bankedMotes = obj.motes;
         galaxies = obj.galaxies.slice();
         deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
@@ -3486,6 +3832,25 @@
         fragmentsKilled = typeof obj.fragmentsKilled === 'number' ? obj.fragmentsKilled : 0;
         openingSeen = obj.openingSeen === true;
         galaxyCardsSeen = readGalaxyCardsSeen(obj.galaxyCardsSeen);
+        ships = readShips(obj.ships);
+        commanders = readCommanders(obj.commanders);
+        equipped = readEquipped(obj.equipped, ships, commanders);
+        saveBank();
+        saveMessage = 'Import successful';
+      } else if (obj && obj.v === 9 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
+        bankedMotes = obj.motes;
+        galaxies = obj.galaxies.slice();
+        deepestHeld = typeof obj.deepestHeld === 'number' ? obj.deepestHeld : galaxies.filter((g) => g === 1).length;
+        NAMES = readNames(obj.names);
+        shop = readShop(obj.shop);
+        kekuSeen = readKekuSeen(obj.kekuSeen);
+        bestDepth = typeof obj.bestDepth === 'number' ? obj.bestDepth : 0;
+        fragmentsKilled = typeof obj.fragmentsKilled === 'number' ? obj.fragmentsKilled : 0;
+        openingSeen = obj.openingSeen === true;
+        galaxyCardsSeen = readGalaxyCardsSeen(obj.galaxyCardsSeen);
+        ships = shipsUnlockedFromGalaxies(galaxies);
+        commanders = commandersUnlockedFromGalaxies(galaxies);
+        equipped = defaultEquipped();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 8 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -3499,6 +3864,9 @@
         fragmentsKilled = typeof obj.fragmentsKilled === 'number' ? obj.fragmentsKilled : 0;
         openingSeen = true;
         galaxyCardsSeen = defaultGalaxyCardsSeen();
+        ships = shipsUnlockedFromGalaxies(galaxies);
+        commanders = commandersUnlockedFromGalaxies(galaxies);
+        equipped = defaultEquipped();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 7 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -3512,6 +3880,9 @@
         fragmentsKilled = 0;
         openingSeen = true;
         galaxyCardsSeen = defaultGalaxyCardsSeen();
+        ships = shipsUnlockedFromGalaxies(galaxies);
+        commanders = commandersUnlockedFromGalaxies(galaxies);
+        equipped = defaultEquipped();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 6 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -3525,6 +3896,9 @@
         fragmentsKilled = 0;
         openingSeen = true;
         galaxyCardsSeen = defaultGalaxyCardsSeen();
+        ships = shipsUnlockedFromGalaxies(galaxies);
+        commanders = commandersUnlockedFromGalaxies(galaxies);
+        equipped = defaultEquipped();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 5 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -3538,6 +3912,9 @@
         fragmentsKilled = 0;
         openingSeen = true;
         galaxyCardsSeen = defaultGalaxyCardsSeen();
+        ships = shipsUnlockedFromGalaxies(galaxies);
+        commanders = commandersUnlockedFromGalaxies(galaxies);
+        equipped = defaultEquipped();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 4 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -3551,6 +3928,9 @@
         fragmentsKilled = 0;
         openingSeen = true;
         galaxyCardsSeen = defaultGalaxyCardsSeen();
+        ships = shipsUnlockedFromGalaxies(galaxies);
+        commanders = commandersUnlockedFromGalaxies(galaxies);
+        equipped = defaultEquipped();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 3 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -3564,6 +3944,9 @@
         fragmentsKilled = 0;
         openingSeen = true;
         galaxyCardsSeen = defaultGalaxyCardsSeen();
+        ships = shipsUnlockedFromGalaxies(galaxies);
+        commanders = commandersUnlockedFromGalaxies(galaxies);
+        equipped = defaultEquipped();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 2 && typeof obj.motes === 'number' && Array.isArray(obj.galaxies) && obj.galaxies.length === 10) {
@@ -3577,6 +3960,9 @@
         fragmentsKilled = 0;
         openingSeen = true;
         galaxyCardsSeen = defaultGalaxyCardsSeen();
+        ships = shipsUnlockedFromGalaxies(galaxies);
+        commanders = commandersUnlockedFromGalaxies(galaxies);
+        equipped = defaultEquipped();
         saveBank();
         saveMessage = 'Import successful';
       } else if (obj && obj.v === 1 && typeof obj.motes === 'number') {
@@ -3590,6 +3976,9 @@
         fragmentsKilled = 0;
         openingSeen = true;
         galaxyCardsSeen = defaultGalaxyCardsSeen();
+        ships = defaultShips();
+        commanders = defaultCommanders();
+        equipped = defaultEquipped();
         saveBank();
         saveMessage = 'Import successful';
       } else {
@@ -3602,7 +3991,7 @@
   }
 
   function updateMotes(dt) {
-    const reachRadius = TUNE.PICKUP_RADIUS * Math.pow(TUNE.REACH_MULT, upgradeLevels.reach) * Math.pow(TUNE.SHOP_REACH_MULT, shop.reach);
+    const reachRadius = TUNE.PICKUP_RADIUS * Math.pow(TUNE.REACH_MULT, upgradeLevels.reach) * Math.pow(TUNE.SHOP_REACH_MULT, shop.reach) * commanderPickupMult();
 
     for (let i = motes.length - 1; i >= 0; i--) {
       const mote = motes[i];
@@ -3735,6 +4124,17 @@
       sfxGalaxyCleared();
       stopDrone();
       galaxies[currentGalaxy] = 1;
+
+      // Block 27 -- clearing a galaxy permanently unlocks the ship/commander
+      // from the civilisation that weaponised its element. Unlike galaxies[]
+      // (which can decay back to 0), ships[]/commanders[] are one-way once
+      // earned -- never re-derived from galaxies[] after this point.
+      const clearedElement = GALAXY_DATA[currentGalaxy].element;
+      const clearedShipIdx = SHIPS.findIndex((s) => s.element === clearedElement);
+      if (clearedShipIdx >= 0) ships[clearedShipIdx] = true;
+      const clearedCommanderIdx = COMMANDERS.findIndex((c) => c.element === clearedElement);
+      if (clearedCommanderIdx >= 0) commanders[clearedCommanderIdx] = true;
+
       const heldCount = galaxies.filter((g) => g === 1).length;
       if (heldCount > deepestHeld) deepestHeld = heldCount;
       if (kekuLineFirstTime(0)) {
@@ -3755,11 +4155,22 @@
 
   function updateBullets(dt) {
     fireTimer += dt;
-    const effectiveFireRate = TUNE.FIRE_RATE * Math.pow(TUNE.FIRE_RATE_MULT, upgradeLevels.fireRate) * Math.pow(TUNE.SHOP_CADENCE_MULT, shop.cadence) * acidFireRateMult();
+    const effectiveFireRate = TUNE.FIRE_RATE * Math.pow(TUNE.FIRE_RATE_MULT, upgradeLevels.fireRate) * Math.pow(TUNE.SHOP_CADENCE_MULT, shop.cadence) * acidFireRateMult() * shipFireRateMult() * commanderFireRateMult();
     if (fireTimer >= effectiveFireRate) {
       const target = acquireTarget();
       if (target) {
         fireTimer = 0;
+
+        // Crystal: "every 5th shot pierces all" -- counts firing TRIGGERS
+        // (one volley), not individual bullets, so multishot doesn't skew it.
+        let isPierceVolley = false;
+        if (equipped.commander === 'crystal') {
+          crystalShotCounter++;
+          if (crystalShotCounter >= TUNE.CMD_CRYSTAL_PIERCE_EVERY) {
+            crystalShotCounter = 0;
+            isPierceVolley = true;
+          }
+        }
 
         const rx = target.x - player.x;
         const ry = target.y - player.y;
@@ -3804,7 +4215,8 @@
             vx: Math.cos(angle) * TUNE.BULLET_SPEED,
             vy: Math.sin(angle) * TUNE.BULLET_SPEED,
             hit: new Set(),
-            pierceRemaining: upgradeLevels.pierce
+            pierceRemaining: upgradeLevels.pierce,
+            pierceAll: isPierceVolley
           });
         }
         sfxFire();
@@ -3871,7 +4283,7 @@
           spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, '210, 210, 210', 3);
           sfxHit();
           bullet.hit.add(closest);
-          if (bullet.pierceRemaining > 0) bullet.pierceRemaining--; else bullet.dead = true;
+          if (!bullet.pierceAll) { if (bullet.pierceRemaining > 0) bullet.pierceRemaining--; else bullet.dead = true; }
 
         } else if (latticeBlocked) {
           // THE LATTICE: an unbroken facet reflects the shot straight back
@@ -3884,7 +4296,7 @@
           spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, hslToRgbTriplet(currentHue(), 0.7, 0.75), 3);
           sfxHit();
           bullet.hit.add(closest);
-          if (bullet.pierceRemaining > 0) bullet.pierceRemaining--; else bullet.dead = true;
+          if (!bullet.pierceAll) { if (bullet.pierceRemaining > 0) bullet.pierceRemaining--; else bullet.dead = true; }
 
         } else if (shieldedBlocked) {
           // SHIELDED: absorbs -- the ring (drawn at the call site) flashes,
@@ -3894,20 +4306,79 @@
           spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, '255, 255, 255', 3);
           sfxHit();
           bullet.hit.add(closest);
-          if (bullet.pierceRemaining > 0) bullet.pierceRemaining--; else bullet.dead = true;
+          if (!bullet.pierceAll) { if (bullet.pierceRemaining > 0) bullet.pierceRemaining--; else bullet.dead = true; }
 
         } else {
-          closest.hp -= TUNE.BULLET_DAMAGE * Math.pow(TUNE.DAMAGE_MULT, upgradeLevels.damage) * Math.pow(TUNE.SHOP_CALIBRE_MULT, shop.calibre);
+          closest.hp -= TUNE.BULLET_DAMAGE * Math.pow(TUNE.DAMAGE_MULT, upgradeLevels.damage) * Math.pow(TUNE.SHOP_CALIBRE_MULT, shop.calibre) * commanderDamageMult(bullet.pierceAll) * enemyDamageTakenMult();
           closest.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
           if (closest.elite && closest.affix === 'shielded') {
             closest.shieldedUntil = currentTime + TUNE.AFFIX_SHIELDED_DURATION * 1000;
           }
 
-          // Rock: "immune to knockback... they do not stagger."
+          // Rock: "immune to knockback... they do not stagger." The Rock
+          // SHIP hits harder still -- an enhanced multiplier on top of the
+          // universal knockback every ship already has, not an exclusive.
           if (currentElement() !== 'Rock') {
             const blen = Math.hypot(bullet.vx, bullet.vy) || 1;
-            closest.x += (bullet.vx / blen) * TUNE.KNOCKBACK;
-            closest.y += (bullet.vy / blen) * TUNE.KNOCKBACK;
+            const kb = TUNE.KNOCKBACK * (equipped.ship === 'rock' ? TUNE.SHIP_ROCK_KNOCKBACK_MULT : 1);
+            closest.x += (bullet.vx / blen) * kb;
+            closest.y += (bullet.vy / blen) * kb;
+          }
+
+          // Fire ship: ignites on hit -- burn DPS ticks in updateEnemies(),
+          // which also periodically drops a fire pool at the burning
+          // enemy's feet. Reusing the shared firePools damage check (no
+          // faction filter) IS the "your own fire pools hurt you" drawback.
+          if (equipped.ship === 'fire') {
+            closest.burnUntil = currentTime + TUNE.SHIP_FIRE_BURN_DURATION * 1000;
+          }
+
+          // Ice ship: slows the target on hit -- read by updateChaseEnemy/
+          // updateLanceEnemy via shipIceSlowActive().
+          if (equipped.ship === 'ice') {
+            closest.shipIceSlowUntil = currentTime + TUNE.SHIP_ICE_SLOW_DURATION * 1000;
+          }
+
+          // Electric ship: chains to nearby enemies on EVERY hit (not just
+          // kills, unlike the Electric galaxy's death-only chain).
+          if (equipped.ship === 'electric') {
+            const chainTargets = enemies
+              .filter((e) => e !== closest && !e.dead)
+              .sort((a, b) => Math.hypot(a.x - closest.x, a.y - closest.y) - Math.hypot(b.x - closest.x, b.y - closest.y))
+              .slice(0, TUNE.SHIP_ELECTRIC_CHAIN_TARGETS);
+            for (const t of chainTargets) {
+              if (Math.hypot(t.x - closest.x, t.y - closest.y) > TUNE.SHIP_ELECTRIC_CHAIN_RANGE) continue;
+              lightningBolts.push({ x1: closest.x, y1: closest.y, x2: t.x, y2: t.y, born: currentTime, life: TUNE.ELEMENT_CHAIN_BOLT_MS });
+              t.hp -= TUNE.SHIP_ELECTRIC_CHAIN_DAMAGE * enemyDamageTakenMult();
+              t.flashUntil = currentTime + TUNE.HIT_FLASH_MS;
+              if (t.hp <= 0 && !t.dead) {
+                t.dead = true;
+                spawnDeathBurst(t.x, t.y);
+                applyElementalDeathEffect(t);
+                regularEnemyDeathRewards(t);
+              }
+            }
+          }
+
+          // Gravity ship: pulls nearby enemies toward the impact point, and
+          // a slight pull on the player too -- "not immune to it" in
+          // practice.
+          if (equipped.ship === 'gravity') {
+            for (const e2 of enemies) {
+              if (e2 === closest || e2.dead) continue;
+              const gdx = nx - e2.x, gdy = ny - e2.y;
+              const gdist = Math.hypot(gdx, gdy);
+              if (gdist > 0.001 && gdist < TUNE.SHIP_GRAVITY_PULL_RADIUS) {
+                e2.x += (gdx / gdist) * TUNE.SHIP_GRAVITY_PULL_STRENGTH;
+                e2.y += (gdy / gdist) * TUNE.SHIP_GRAVITY_PULL_STRENGTH;
+              }
+            }
+            const spdx = nx - player.x, spdy = ny - player.y;
+            const spdist = Math.hypot(spdx, spdy);
+            if (spdist > 0.001 && spdist < TUNE.SHIP_GRAVITY_PULL_RADIUS) {
+              player.x += (spdx / spdist) * TUNE.SHIP_GRAVITY_SELF_PULL;
+              player.y += (spdy / spdist) * TUNE.SHIP_GRAVITY_SELF_PULL;
+            }
           }
 
           // Sparks off the enemy's own light, not white -- white is sacred.
@@ -3915,10 +4386,12 @@
           sfxHit();
 
           bullet.hit.add(closest);
-          if (bullet.pierceRemaining > 0) {
-            bullet.pierceRemaining--;
-          } else {
-            bullet.dead = true;
+          if (!bullet.pierceAll) {
+            if (bullet.pierceRemaining > 0) {
+              bullet.pierceRemaining--;
+            } else {
+              bullet.dead = true;
+            }
           }
 
           if (isBoss && heraldIdx === HERALD_TRANSFER && !boss.hasSplit && boss.hp > 0 && boss.hp <= boss.maxHp * TUNE.HERALD_TRANSFER_SPLIT_FRAC) {
@@ -4055,6 +4528,10 @@
     }
     if (state === STATE.SHOP) {
       drawShop();
+      return;
+    }
+    if (state === STATE.EQUIP) {
+      drawEquip();
       return;
     }
     drawRun();
@@ -5103,6 +5580,117 @@
     ctx.textAlign = 'left';
   }
 
+  // Block 27 -- one row of the EQUIP list. drawY is already in screen space
+  // (equipScroll subtracted by the caller), so the bounds pushed here match
+  // tap coordinates directly -- no inverse transform needed at hit-test time.
+  function drawEquipRow(rowX, drawY, rowW, rowH, def, locked, isEquipped, kind) {
+    ctx.fillStyle = isEquipped ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.05)';
+    ctx.fillRect(rowX, drawY, rowW, rowH);
+    ctx.strokeStyle = isEquipped ? 'rgba(255, 255, 255, 0.6)' : 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rowX, drawY, rowW, rowH);
+
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillStyle = locked ? 'rgba(255, 255, 255, 0.35)' : '#fff';
+    ctx.fillText(def.name, rowX + 12, drawY + 20);
+
+    ctx.font = '11px sans-serif';
+    ctx.fillStyle = locked ? 'rgba(255, 255, 255, 0.25)' : 'rgba(180, 220, 255, 0.85)';
+    ctx.fillText(def.desc, rowX + 12, drawY + 36);
+    ctx.fillStyle = locked ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 150, 150, 0.85)';
+    ctx.fillText(def.drawback, rowX + 12, drawY + 50);
+
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 11px sans-serif';
+    if (locked) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.fillText('LOCKED', rowX + rowW - 10, drawY + rowH / 2 + 4);
+    } else if (isEquipped) {
+      ctx.fillStyle = '#fff';
+      ctx.fillText('EQUIPPED', rowX + rowW - 10, drawY + rowH / 2 + 4);
+    } else {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.fillText('EQUIP', rowX + rowW - 10, drawY + rowH / 2 + 4);
+    }
+
+    equipRowBounds.push({ x: rowX, y: drawY, w: rowW, h: rowH, kind, key: def.key, locked });
+    ctx.textAlign = 'left';
+  }
+
+  // Block 27 -- EQUIP screen. Simple list UI per the spec (the silhouette
+  // select screen is Block 34, not this block): ships, then commanders,
+  // vertically scrollable since 6+6 rows don't reliably fit a phone canvas.
+  function drawEquip() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillText('LOADOUT', canvas.width / 2, 40);
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.fillText('Every option has a cost. No exceptions.', canvas.width / 2, 60);
+
+    const backW = 60;
+    const backH = 28;
+    equipBackBounds = { x: 14, y: 12, w: backW, h: backH };
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fillRect(equipBackBounds.x, equipBackBounds.y, backW, backH);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(equipBackBounds.x, equipBackBounds.y, backW, backH);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('BACK', equipBackBounds.x + backW / 2, equipBackBounds.y + backH / 2 + 4);
+
+    const listTop = 78;
+    const rowH = 64;
+    const rowGap = 8;
+    const headerH = 24;
+    const sectionGap = 14;
+    const rowW = canvas.width - 40;
+    const rowX = 20;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, listTop, canvas.width, canvas.height - listTop);
+    ctx.clip();
+
+    equipRowBounds = [];
+    let contentY = 0;
+
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.fillText('SHIP', rowX, listTop + contentY - equipScroll + 16);
+    contentY += headerH;
+
+    for (let i = 0; i < SHIPS.length; i++) {
+      const def = SHIPS[i];
+      drawEquipRow(rowX, listTop + contentY - equipScroll, rowW, rowH, def, !ships[i], equipped.ship === def.key, 'ship');
+      contentY += rowH + rowGap;
+    }
+
+    contentY += sectionGap;
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.fillText('COMMANDER', rowX, listTop + contentY - equipScroll + 16);
+    contentY += headerH;
+
+    for (let i = 0; i < COMMANDERS.length; i++) {
+      const def = COMMANDERS[i];
+      drawEquipRow(rowX, listTop + contentY - equipScroll, rowW, rowH, def, !commanders[i], equipped.commander === def.key, 'commander');
+      contentY += rowH + rowGap;
+    }
+
+    ctx.restore();
+
+    equipMaxScroll = Math.max(0, contentY - (canvas.height - listTop - 16));
+    ctx.textAlign = 'left';
+  }
+
   // Block 30 -- the real title screen. Corridor drifts on its own schedule
   // (titleScroll, driven in loop()) behind AFTERLIGHT and Keku's point, dimmed
   // just enough for the buttons to stay legible over it.
@@ -5327,6 +5915,19 @@
     ctx.font = 'bold 12px sans-serif';
     ctx.fillText('ENDLESS', endlessBtnX + endlessBtnW / 2, endlessBtnY + endlessBtnH / 2 + 4);
     endlessButtonBounds = { x: endlessBtnX, y: endlessBtnY, w: endlessBtnW, h: endlessBtnH };
+
+    const equipBtnW = 64;
+    const equipBtnH = 28;
+    const equipBtnX = endlessBtnX + endlessBtnW + 8;   // next to ENDLESS, same row
+    const equipBtnY = shopBtnY;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fillRect(equipBtnX, equipBtnY, equipBtnW, equipBtnH);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.strokeRect(equipBtnX, equipBtnY, equipBtnW, equipBtnH);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('EQUIP', equipBtnX + equipBtnW / 2, equipBtnY + equipBtnH / 2 + 4);
+    equipButtonBounds = { x: equipBtnX, y: equipBtnY, w: equipBtnW, h: equipBtnH };
 
     startButtons = [];
     const smallBtnW = 70;
