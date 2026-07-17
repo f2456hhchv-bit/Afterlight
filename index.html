@@ -1226,6 +1226,33 @@
     };
   }
 
+  // Block 37 -- BUGFIX. "White is reserved for the Warden and Keku only. No
+  // enemy may ever be white." Every enemy/boss "flash to white" or
+  // "near-white core" effect below used to be literal #fff (or an rgba
+  // built on 255,255,255) -- this returns a hot version of the galaxy's own
+  // hue instead: bright enough to read as "just hit" or "look here," but
+  // never pure white, even if a flash timer gets restarted every frame
+  // under rapid fire (the original failure mode).
+  //
+  // KEEP `lightness` AT OR BELOW ~62. This is not a stylistic choice --
+  // strokeShipPath draws every stroke as TWO additive passes (a wide bloom
+  // at alpha .35, then the core at alpha 1) under globalCompositeOperation
+  // 'lighter', so the same colour gets summed with itself at the outline's
+  // centreline. Verified empirically across all ten galaxy hues (including
+  // the worst case, where two of the three RGB channels are simultaneously
+  // near-max): lightness above ~65-70 clips one or more channels to 255
+  // and the "hot hue" becomes indistinguishable from literal white on
+  // screen -- which is exactly how this bug reappeared the first time
+  // (values were originally picked by eye against a single hue, not
+  // verified against the additive compositing that every enemy actually
+  // renders through). Do not raise this without re-testing the composite,
+  // not just the raw hsl() value.
+  function hotHue(hue, lightness, saturation, alpha) {
+    const sat = saturation === undefined ? 80 : saturation;
+    if (alpha === undefined) return `hsl(${hue}, ${sat}%, ${lightness}%)`;
+    return `hsla(${hue}, ${sat}%, ${lightness}%, ${alpha})`;
+  }
+
   // Damage feedback -- one colour, used ONLY for "you just took/dealt a hit,"
   // never for anything's normal state. White is sacred (only the Warden and
   // Keku, in-run and on the map, are ever white), so this is deliberately
@@ -4434,7 +4461,9 @@
           // the body itself never shows the normal white hit-flash, since
           // this isn't a landed hit.
           closest.shieldFlashUntil = currentTime + 150;
-          spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, '255, 255, 255', 3);
+          // Same treatment as the Metronome spark just above -- "connects,
+          // doesn't land" -- a near-white grey, not literal white.
+          spawnParticle(nx, ny, 0, 0, TUNE.IMPACT_SPARK_MS, '210, 210, 210', 3);
           sfxHit();
           bullet.hit.add(closest);
           if (!bullet.pierceAll) { if (bullet.pierceRemaining > 0) bullet.pierceRemaining--; else bullet.dead = true; }
@@ -5007,7 +5036,7 @@
         for (let i = 0; i < enemy.trail.length - 1; i++) {
           const a = enemy.trail[i], b = enemy.trail[i + 1];
           const age = (i + 1) / enemy.trail.length;
-          ctx.strokeStyle = flashing ? '#fff' : pal.tier2;
+          ctx.strokeStyle = flashing ? hotHue(pal.hue, 55) : pal.tier2;
           ctx.globalAlpha = age * 0.5;
           ctx.lineWidth = 3 * age;
           ctx.beginPath();
@@ -5041,21 +5070,25 @@
       if (elite) ctx.scale(eliteScale, eliteScale);
       // The unmistakable elite tell: the OUTLINE (never the fill) pulses
       // near-white. Flashing (a landed hit) still takes priority, same as
-      // every other entity's hit feedback.
+      // every other entity's hit feedback. Block 37 -- "near-white" was
+      // literal #fff before this fix, which is exactly what made elites
+      // read as white enemies; hotHue keeps it hot but visibly tinted with
+      // the galaxy's own hue instead.
       const pulseT = 0.5 + 0.5 * Math.sin((currentTime / TUNE.ELITE_PULSE_MS) * Math.PI * 2);
-      const eliteStroke = elite && !flashing ? `rgba(255, 255, 255, ${(0.55 + 0.45 * pulseT).toFixed(2)})` : null;
+      const eliteStroke = elite && !flashing ? hotHue(pal.hue, 58, 80, (0.55 + 0.45 * pulseT).toFixed(2)) : null;
       const visualSize = enemy.type === 'lance' ? LANCE_SIZE : enemy.type === 'anchor' ? ANCHOR_SIZE : HOLLOW_SIZE;
 
       // Tier is shape, SIZE, stroke weight and brightness -- never a
       // different hue. Hollow/Lance/Anchor are all pal's ONE hue this
       // galaxy; the explicit *_SIZE constants and SHIP_STROKE_PX (top of
       // file) are what make the tier hierarchy readable instantly instead
-      // of just by shape alone. Block 23: hit feedback is a flash to
-      // white, full stop.
+      // of just by shape alone. Block 37 -- hit feedback is a flash to a
+      // HOT, hue-tinted colour, never literal white (that's the Warden's
+      // and Keku's alone).
       if (enemy.type === 'lance') {
-        strokeShipPath(SHIP_LANCE, flashing ? '#fff' : pal.tier2, SHIP_STROKE_PX.lance / eliteScale, eliteStroke);
+        strokeShipPath(SHIP_LANCE, flashing ? hotHue(pal.hue, 55) : pal.tier2, SHIP_STROKE_PX.lance / eliteScale, eliteStroke);
       } else if (enemy.type === 'anchor') {
-        const color = flashing ? '#fff' : pal.tier3;
+        const color = flashing ? hotHue(pal.hue, 55) : pal.tier3;
         strokeShipPath(SHIP_ANCHOR, color, SHIP_STROKE_PX.anchor / eliteScale, eliteStroke);
 
         // Fracture lines -- surface detail, not part of the outline. Same
@@ -5074,9 +5107,9 @@
       } else if (enemy.type === 'transfer_half') {
         // Still boss-tier after the split -- THE TRANSFER's own shape and
         // brightness, not the swarm's Hollow silhouette. Never elite.
-        strokeShipPath(heraldTransferPoints(enemy.radius), flashing ? '#fff' : pal.bossAccent, 2.5);
+        strokeShipPath(heraldTransferPoints(enemy.radius), flashing ? hotHue(pal.hue, 60, 88) : pal.bossAccent, 2.5);
       } else {
-        const color = flashing ? '#fff' : pal.tier1;
+        const color = flashing ? hotHue(pal.hue, 55) : pal.tier1;
         strokeShipPath(SHIP_HOLLOW, color, SHIP_STROKE_PX.hollow / eliteScale, eliteStroke);
 
         // A small hot core -- same hue as the hull, additively stacked so
@@ -5098,7 +5131,10 @@
           const shieldFlash = currentTime < (enemy.shieldFlashUntil || 0);
           ctx.beginPath();
           ctx.arc(0, 0, visualSize * 1.35, 0, Math.PI * 2);
-          ctx.strokeStyle = '#fff';
+          // Block 37 -- this ring used to be permanently pure white
+          // (never gated by flashing at all), which read as a white
+          // enemy on every single shielded elite, always.
+          ctx.strokeStyle = hotHue(pal.hue, shieldFlash ? 60 : 50);
           ctx.globalAlpha = shieldFlash ? 0.9 : 0.3;
           ctx.lineWidth = shieldFlash ? 3 : 1.3;
           ctx.stroke();
@@ -5122,7 +5158,7 @@
           ctx.fillStyle = `rgba(255, ${Math.floor(230 - missing * 170)}, ${Math.floor(190 - missing * 190)}, ${(0.25 + missing * 0.55).toFixed(2)})`;
           ctx.fill();
         } else if (enemy.affix === 'splitting') {
-          ctx.strokeStyle = flashing ? '#fff' : pal.tier1;
+          ctx.strokeStyle = flashing ? hotHue(pal.hue, 55) : pal.tier1;
           ctx.globalAlpha = 0.55;
           ctx.lineWidth = 1;
           ctx.beginPath();
@@ -5145,10 +5181,11 @@
       ctx.translate(boss.x, boss.y);
       ctx.rotate(boss.angle);
 
-      // WHITE IS SACRED as a resting colour -- and Keku is one of the two
-      // things that ever gets to wear it, same as the Warden. A hit is
-      // still a flash to white either way, same as every other entity.
-      const color = currentTime < boss.flashUntil ? '#fff' : (boss.isFragment ? '#fff' : pal.bossAccent);
+      // WHITE IS SACRED as a resting colour -- Keku is the one thing besides
+      // the Warden that ever gets to wear it, permanently, hit or not. Every
+      // OTHER boss (the ten heralds) is an enemy like any other: it flashes
+      // to a hot, hue-tinted colour on a landed hit, never to literal white.
+      const color = boss.isFragment ? '#fff' : (currentTime < boss.flashUntil ? hotHue(pal.hue, 60, 88) : pal.bossAccent);
       strokeShipPath(heraldShipPoints(boss.herald, boss.radius), color, 2.5);
 
       if (boss.herald === HERALD_MAW || boss.herald === undefined) {
@@ -5177,7 +5214,7 @@
           const flash = 0.5 + 0.5 * Math.sin(t * 14);
           ctx.beginPath();
           ctx.arc(0, 0, boss.radius * (1.15 + flash * 0.15), 0, Math.PI * 2);
-          ctx.strokeStyle = '#fff';
+          ctx.strokeStyle = hotHue(pal.hue, 60, 88);
           ctx.globalAlpha = 0.5 + flash * 0.4;
           ctx.lineWidth = 2.5;
           ctx.stroke();
@@ -5190,7 +5227,7 @@
         for (let i = 0; i < sides; i++) {
           const ang = (Math.PI * 2 / sides) * i + (Math.PI / sides);
           const broken = boss.facetHits[i] >= TUNE.HERALD_LATTICE_FACET_HITS;
-          ctx.strokeStyle = broken ? '#fff' : color;
+          ctx.strokeStyle = broken ? hotHue(pal.hue, 60, 88) : color;
           ctx.globalAlpha = broken ? 0.9 : 0.35;
           ctx.lineWidth = 2;
           ctx.beginPath();
